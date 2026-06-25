@@ -14,7 +14,7 @@ class _MainShellState extends State<MainShell> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const Scaffold(body: Center(child: Text('Trading Desk Console Connected', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)))),
-    const Scaffold(body: Center(child: Text('Market Analytics Node Online', style: TextStyle(color: Color(0xFFF0B90B),延时: 1.2)))),
+    const Scaffold(body: Center(child: Text('Market Analytics Node Online', style: TextStyle(color: Color(0xFFF0B90B), fontWeight: FontWeight.bold)))),
   ];
 
   @override
