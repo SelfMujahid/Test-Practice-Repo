@@ -87,7 +87,7 @@ class _TradeScreenState extends State<TradeScreen> {
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           labelText: 'Amount (BTC)',
-                          labelStyle: const TextStyle(color: Colors.white55),
+                          labelStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
                           filled: true,
                           fillColor: const Color(0xFF1E2329),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
@@ -124,7 +124,7 @@ class _TradeScreenState extends State<TradeScreen> {
       margin: const EdgeInsets.symmetric(vertical: 1),
       decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(4)),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.between,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(p.toStringAsFixed(1), style: TextStyle(color: textColor, fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
           Text(a.toStringAsFixed(3), style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace')),
