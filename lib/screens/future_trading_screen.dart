@@ -9,14 +9,14 @@ class FutureTradingScreen extends StatefulWidget {
 
 class _FutureTradingScreenState extends State<FutureTradingScreen> {
   final _socketsService = BinanceSocketsService();
-  String _tradeType = "FUTURE"; // SPOT, FUTURE, BIT
+  String _tradeType = "FUTURE";
   List<dynamic> _bids = [];
   List<dynamic> _asks = [];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6F9), // Milk White Setup
+      backgroundColor: const Color(0xFFF5F6F9),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -70,7 +70,7 @@ class _FutureTradingScreenState extends State<FutureTradingScreen> {
                 ),
               ),
               
-              // Right Form (Bitget Premium UI Copy)
+              // Right Form
               Expanded(
                 flex: 6,
                 child: Padding(
@@ -81,8 +81,8 @@ class _FutureTradingScreenState extends State<FutureTradingScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Container(padding: const EdgeInsets.all(6), color: Colors.black10, child: const Text("Cross 20x", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black))),
-                          Container(padding: const EdgeInsets.all(6), color: Colors.black10, child: const Text("Limit Order", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black))),
+                          Container(padding: const EdgeInsets.all(6), color: Colors.black.withOpacity(0.08), child: const Text("Cross 20x", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black))),
+                          Container(padding: const EdgeInsets.all(6), color: Colors.black.withOpacity(0.08), child: const Text("Limit Order", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black))),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -97,6 +97,7 @@ class _FutureTradingScreenState extends State<FutureTradingScreen> {
                       ),
                       const SizedBox(height: 20),
                       ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.green), onPressed: () {}, child: const Text("Buy / Long", style: TextStyle(color: Colors.white))),
+                      const SizedBox(height: 5),
                       ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () {}, child: const Text("Sell / Short", style: TextStyle(color: Colors.white))),
                     ],
                   ),
