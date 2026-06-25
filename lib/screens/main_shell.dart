@@ -14,7 +14,7 @@ class _MainShellState extends State<MainShell> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const FutureTradingScreen(),
-    const Scaffold(backgroundColor: Color(0xFFF5F6F9), body: Center(child: Text('Analytics Node Active', style: TextStyle(color: Colors.black)))),
+    const Scaffold(backgroundColor: Color(0xFFF5F6F9), body: Center(child: Text('Analytics Node Active', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
   ];
 
   @override
