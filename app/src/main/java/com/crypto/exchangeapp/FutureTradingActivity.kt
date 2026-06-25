@@ -15,6 +15,9 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.*
 
 data class CryptoAsset(val symbol: String, var price: String)
 
@@ -27,16 +30,11 @@ class FutureTradingActivity : AppCompatActivity() {
     private lateinit var tvLow: TextView
     private lateinit var lvCryptoPairs: ListView
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
-
     private var webSocket: WebSocket? = null
     private var selectedSymbol = "BTCUSDT"
     private var cryptoList = ArrayList<CryptoAsset>()
     private lateinit var listAdapter: CryptoListAdapter
+    private lateinit var client: OkHttpClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +50,8 @@ class FutureTradingActivity : AppCompatActivity() {
         listAdapter = CryptoListAdapter(cryptoList)
         lvCryptoPairs.adapter = listAdapter
 
+        setupUnsafeOkHttpClient()
+
         lvCryptoPairs.setOnItemClickListener { _, _, position, _ ->
             selectedSymbol = cryptoList[position].symbol
             tvSymbol.text = selectedSymbol
@@ -62,6 +62,29 @@ class FutureTradingActivity : AppCompatActivity() {
         fetchAllBinanceFuturesPairs()
     }
 
+    // Code level safety bypass for absolute connection clearance
+    private fun setupUnsafeOkHttpClient() {
+        try {
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            })
+
+            val sslContext = SSLContext.getInstance("SSL")
+            sslContext.init(null, trustAllCerts, SecureRandom())
+            
+            client = OkHttpClient.Builder()
+                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+                .hostnameVerifier { _, _ -> true }
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+        } catch (e: Exception) {
+            client = OkHttpClient.Builder().build()
+        }
+    }
+
     private fun fetchAllBinanceFuturesPairs() {
         val request = Request.Builder()
             .url("https://fapi.binance.com/fapi/v1/ticker/24hr")
@@ -70,7 +93,7 @@ class FutureTradingActivity : AppCompatActivity() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 lifecycleScope.launch(Dispatchers.Main) {
-                    tvPrice.text = "Network Error. Retrying..."
+                    tvPrice.text = "Network Offline"
                     delay(5000)
                     fetchAllBinanceFuturesPairs()
                 }
@@ -105,28 +128,26 @@ class FutureTradingActivity : AppCompatActivity() {
     }
 
     private fun startTargetedWebSocket(symbol: String) {
-        webSocket?.close(1000, "Switching Stream")
+        webSocket?.close(1000, "Reset")
         
         val targetStream = symbol.lowercase()
         val wsUrl = "wss://fstream.binance.com/ws/$targetStream@ticker"
         
         val request = Request.Builder()
             .url(wsUrl)
-            .header("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 lifecycleScope.launch(Dispatchers.Main) {
-                    tvPrice.text = "Syncing Data..."
+                    tvPrice.text = "Data Connected"
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val jsonObject = JsonParser.parseString(text).asJsonObject
-                    
-                    // Safe Extraction: Crash aur freeze se bachane ke liye safe strings to double
                     val price = jsonObject.get("c").asString.toDouble()
                     val change = jsonObject.get("P").asString.toDouble()
                     val high = jsonObject.get("h").asString.toDouble()
@@ -139,27 +160,19 @@ class FutureTradingActivity : AppCompatActivity() {
                         tvLow.text = String.format("Low: %.1f", low)
 
                         if (change >= 0) {
-                            tvPrice.setTextColor(Color.parseColor("#0ECB81")) // Green
+                            tvPrice.setTextColor(Color.parseColor("#0ECB81"))
                         } else {
-                            tvPrice.setTextColor(Color.parseColor("#F6465D")) // Red
-                        }
-
-                        val matchedIndex = cryptoList.indexOfFirst { it.symbol == symbol }
-                        if (matchedIndex != -1) {
-                            cryptoList[matchedIndex].price = String.format("%.2f", price)
-                            listAdapter.notifyDataSetChanged()
+                            tvPrice.setTextColor(Color.parseColor("#F6465D"))
                         }
                     }
                 } catch (e: Exception) {
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        tvPrice.text = "Format Error"
-                    }
+                    e.printStackTrace()
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 lifecycleScope.launch(Dispatchers.Main) {
-                    tvPrice.text = "Reconnecting Tunnel..."
+                    tvPrice.text = "Error: ${t.localizedMessage}"
                     delay(3000)
                     startTargetedWebSocket(selectedSymbol)
                 }
@@ -169,7 +182,7 @@ class FutureTradingActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        webSocket?.close(1000, "Destroyed")
+        webSocket?.close(1000, "Exit")
     }
 
     inner class CryptoListAdapter(private val list: ArrayList<CryptoAsset>) : BaseAdapter() {
