@@ -9,6 +9,7 @@ import android.widget.BaseAdapter
 import android.widget.ListView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.gson.JsonParser
 import kotlinx.coroutines.*
 import okhttp3.*
@@ -28,7 +29,6 @@ class FutureTradingActivity : AppCompatActivity() {
     private val client = OkHttpClient()
     private var webSocket: WebSocket? = null
     private var selectedSymbol = "BTCUSDT"
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
     private var cryptoList = ArrayList<CryptoAsset>()
     private lateinit var listAdapter: CryptoListAdapter
 
@@ -36,6 +36,7 @@ class FutureTradingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_future_trading)
 
+        // Binding accurate XML components matching layout file
         tvSymbol = findViewById(R.id.tvSymbol)
         tvPrice = findViewById(R.id.tvPrice)
         tvChange = findViewById(R.id.tvChange)
@@ -46,10 +47,11 @@ class FutureTradingActivity : AppCompatActivity() {
         listAdapter = CryptoListAdapter(cryptoList)
         lvCryptoPairs.adapter = listAdapter
 
+        // List item click to change the tunnel focus target
         lvCryptoPairs.setOnItemClickListener { _, _, position, _ ->
             selectedSymbol = cryptoList[position].symbol
             tvSymbol.text = selectedSymbol
-            tvPrice.text = "Syncing Engine..."
+            tvPrice.text = "Syncing Tunnel..."
             startTargetedWebSocket(selectedSymbol)
         }
 
@@ -63,7 +65,7 @@ class FutureTradingActivity : AppCompatActivity() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                activityScope.launch {
+                lifecycleScope.launch {
                     delay(5000)
                     fetchAllBinanceFuturesPairs()
                 }
@@ -83,18 +85,19 @@ class FutureTradingActivity : AppCompatActivity() {
                     }
                 }
 
-                activityScope.launch {
+                lifecycleScope.launch {
                     cryptoList.clear()
                     cryptoList.addAll(temporaryBufferList)
                     listAdapter.notifyDataSetChanged()
-                    startTargetedWebSocket(selectedSymbol)
+                    startTargetedWebSocket(selectedSymbol) // Start websocket after list initializes
                 }
             }
         })
     }
 
     private fun startTargetedWebSocket(symbol: String) {
-        webSocket?.close(1000, "Terminating previous ledger socket")
+        // Purane focused tunnel stream ko cleanly shut down karna
+        webSocket?.close(1000, "Switching targeted ledger socket")
         
         val targetStream = symbol.lowercase()
         val request = Request.Builder()
@@ -111,18 +114,21 @@ class FutureTradingActivity : AppCompatActivity() {
                 val high = jsonObject.get("h").asDouble
                 val low = jsonObject.get("l").asDouble
 
-                activityScope.launch {
+                // Direct UI main dispatcher pipe pe push data execute karna
+                lifecycleScope.launch(Dispatchers.Main) {
                     tvPrice.text = String.format("$%.2f", price)
                     tvChange.text = String.format("24h: %.2f%%", change)
                     tvHigh.text = String.format("High: %.1f", high)
                     tvLow.text = String.format("Low: %.1f", low)
 
+                    // Trend analysis color manipulation
                     if (change >= 0) {
-                        tvPrice.setTextColor(Color.parseColor("#0ECB81"))
+                        tvPrice.setTextColor(Color.parseColor("#0ECB81")) // Green
                     } else {
-                        tvPrice.setTextColor(Color.parseColor("#F6465D"))
+                        tvPrice.setTextColor(Color.parseColor("#F6465D")) // Red
                     }
 
+                    // Update item price inside the lower list view real-time
                     val matchedIndex = cryptoList.indexOfFirst { it.symbol == symbol }
                     if (matchedIndex != -1) {
                         cryptoList[matchedIndex].price = String.format("%.2f", price)
@@ -132,7 +138,8 @@ class FutureTradingActivity : AppCompatActivity() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                activityScope.launch {
+                // Connection breakage recovery automation
+                lifecycleScope.launch {
                     delay(4000)
                     startTargetedWebSocket(selectedSymbol)
                 }
@@ -143,7 +150,6 @@ class FutureTradingActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         webSocket?.close(1000, "UI Context Destroyed")
-        activityScope.cancel()
     }
 
     inner class CryptoListAdapter(private val list: ArrayList<CryptoAsset>) : BaseAdapter() {
