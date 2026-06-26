@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ExchangeApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#1E2329</item>
+        <item name="colorPrimaryVariant">#000000</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#0ECB81</item>
+        <item name="colorSecondaryVariant">#F6465D</item>
+        <item name="colorOnSecondary">#000000</item>
+        <item name="android:statusBarColor">#161A20</item>
+    </style>
+</resources>
