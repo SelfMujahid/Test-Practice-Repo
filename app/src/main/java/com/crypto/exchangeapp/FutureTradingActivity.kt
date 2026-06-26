@@ -7,7 +7,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.google.gson.JsonParser
 import kotlinx.coroutines.*
 import okhttp3.*
 import java.io.IOException
@@ -16,96 +15,48 @@ import java.util.concurrent.TimeUnit
 
 class FutureTradingActivity : AppCompatActivity() {
 
-    private var tvSymbol: TextView? = null
-    private var tvPrice: TextView? = null
-    private var tvChange: TextView? = null
-
+    private var tvRawData: TextView? = null
     private var webSocket: WebSocket? = null
-    private val selectedSymbol = "BTCUSDT"
+    private val selectedSymbol = "btcusdt" // lowercase standard for streams
     private lateinit var client: OkHttpClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // UI Setup - Sirf ek bada text box poori screen par raw data dikhane ke liye
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP
             setBackgroundColor(Color.parseColor("#161A20"))
-            setPadding(50, 50, 50, 50)
+            setPadding(30, 50, 30, 50)
         }
 
-        tvSymbol = TextView(this).apply {
-            text = selectedSymbol
-            textSize = 28f
+        tvRawData = TextView(this).apply {
+            text = "Connecting to Binance Stream..."
+            textSize = 13f // Chota size taaki microsecond ka poora data fit aaye
             setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
+            gravity = Gravity.LEFT
         }
 
-        tvPrice = TextView(this).apply {
-            text = "Starting Network..."
-            textSize = 16f // Text size chota kiya taaki raw JSON poora nazar aaye
-            setTextColor(Color.parseColor("#848E9C"))
-            gravity = Gravity.CENTER
-            setPadding(0, 30, 0, 30)
-        }
-
-        tvChange = TextView(this).apply {
-            text = "Waiting for Handshake..."
-            textSize = 14f
-            setTextColor(Color.GRAY)
-            gravity = Gravity.CENTER
-        }
-
-        rootLayout.addView(tvSymbol)
-        rootLayout.addView(tvPrice)
-        rootLayout.addView(tvChange)
-
+        rootLayout.addView(tvRawData)
         setContentView(rootLayout)
 
-        setupAuthenticNetworkEngine()
-        startTargetedWebSocket(selectedSymbol)
-    }
-
-    private fun setupAuthenticNetworkEngine() {
+        // Network Setup
         client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
-            .eventListener(object : EventListener() {
-                override fun dnsStart(call: Call, domainName: String) {
-                    printDiagnostic("Resolving DNS...", "Connecting...")
-                }
-                override fun connectStart(call: Call, inetSocketAddress: java.net.InetSocketAddress, proxy: Proxy) {
-                    printDiagnostic("TCP Handshake...", "TCP Active")
-                }
-                override fun secureConnectStart(call: Call) {
-                    printDiagnostic("SSL Verification...", "SSL Active")
-                }
-                override fun connectEnd(call: Call, inetSocketAddress: java.net.InetSocketAddress, proxy: Proxy, protocol: Protocol?) {
-                    printDiagnostic("Connected!", "Handshake Success")
-                }
-                override fun connectFailed(call: Call, inetSocketAddress: java.net.InetSocketAddress, proxy: Proxy, protocol: Protocol?, ioe: IOException) {
-                    printDiagnostic("Handshake Failed", "Err: ${ioe.localizedMessage}")
-                }
-            })
             .build()
+
+        startTargetedWebSocket()
     }
 
-    private fun printDiagnostic(priceText: String, changeText: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            tvPrice?.text = priceText
-            tvChange?.text = changeText
-            tvChange?.setTextColor(Color.parseColor("#848E9C"))
-        }
-    }
-
-        private fun startTargetedWebSocket(symbol: String) {
+    private fun startTargetedWebSocket() {
         webSocket?.close(1000, "Reset")
-        
-        // BASE FUTURES STREAM URL (Updated Standard)
-        // Futures ke liye direct ticker stream ka sahi tareeqa yeh hai:
-        val wsUrl = "wss://fstream.binance.com/stream?streams=${symbol.lowercase()}@ticker"
-        
+
+        // Binance Futures Stream URL
+        val wsUrl = "wss://fstream.binance.com/ws/${selectedSymbol}@ticker"
+
         val request = Request.Builder()
             .url(wsUrl)
             .header("User-Agent", "Mozilla/5.0")
@@ -114,57 +65,32 @@ class FutureTradingActivity : AppCompatActivity() {
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 lifecycleScope.launch(Dispatchers.Main) {
-                    tvPrice?.text = "Tunnel Connected!"
-                    tvPrice?.setTextColor(Color.parseColor("#0ECB81"))
-                    tvChange?.text = "Streaming Live... Waiting for packets"
+                    tvRawData?.text = "Tunnel Open! Waiting for raw data packets..."
+                    tvRawData?.setTextColor(Color.GREEN)
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                // Bina kisi try-catch parsing ke, direct string ko screen par fenkna
                 lifecycleScope.launch(Dispatchers.Main) {
-                    try {
-                        val jsonParser = JsonParser.parseString(text).asJsonObject
-                        
-                        // Jab hum /stream?streams= use karte hain, toh Binance data ko "data" key ke andar lapet kar bhejta hai
-                        val jsonObject = if (jsonParser.has("data")) jsonParser.getAsJsonObject("data") else jsonParser
-
-                        if (jsonObject.has("c")) {
-                            val price = jsonObject.get("c").asString.toDouble()
-                            val change = jsonObject.get("P").asString.toDouble()
-
-                            tvPrice?.text = String.format("$%.2f", price)
-                            tvPrice?.textSize = 28f
-                            tvChange?.text = String.format("24h Change: %.2f%%", change)
-
-                            if (change >= 0) {
-                                tvPrice?.setTextColor(Color.parseColor("#0ECB81"))
-                            } else {
-                                tvPrice?.setTextColor(Color.parseColor("#F6465D"))
-                            }
-                        } else {
-                            // Agar custom structure hai toh screen par raw json dikhaye
-                            tvPrice?.text = text
-                            tvPrice?.setTextColor(Color.WHITE)
-                        }
-
-                    } catch (e: Exception) {
-                        tvPrice?.text = "Parse Error: ${e.localizedMessage}"
-                        tvPrice?.setTextColor(Color.YELLOW)
-                        tvChange?.text = text
-                    }
+                    tvRawData?.text = text
+                    tvRawData?.setTextColor(Color.WHITE)
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 lifecycleScope.launch(Dispatchers.Main) {
-                    tvPrice?.text = "Tunnel Failure"
-                    tvPrice?.setTextColor(Color.parseColor("#F6465D"))
-                    tvChange?.text = "Reason: ${t.localizedMessage}"
-                    tvChange?.setTextColor(Color.YELLOW)
-                    delay(5000)
-                    startTargetedWebSocket(selectedSymbol)
+                    tvRawData?.text = "Connection Failed: ${t.localizedMessage}\nRetrying..."
+                    tvRawData?.setTextColor(Color.RED)
+                    delay(3000)
+                    startTargetedWebSocket()
                 }
             }
         })
-        }
-        
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        webSocket?.close(1000, "Exit")
+    }
+}
