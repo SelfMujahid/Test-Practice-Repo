@@ -99,9 +99,12 @@ class FutureTradingActivity : AppCompatActivity() {
         }
     }
 
-    private fun startTargetedWebSocket(symbol: String) {
+        private fun startTargetedWebSocket(symbol: String) {
         webSocket?.close(1000, "Reset")
-        val wsUrl = "wss://fstream.binance.com/ws/${symbol.lowercase()}@ticker"
+        
+        // BASE FUTURES STREAM URL (Updated Standard)
+        // Futures ke liye direct ticker stream ka sahi tareeqa yeh hai:
+        val wsUrl = "wss://fstream.binance.com/stream?streams=${symbol.lowercase()}@ticker"
         
         val request = Request.Builder()
             .url(wsUrl)
@@ -120,19 +123,17 @@ class FutureTradingActivity : AppCompatActivity() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 lifecycleScope.launch(Dispatchers.Main) {
                     try {
-                        // Pehle check karte hain data aa kya raha hai, pure text screen par print kar dein
-                        tvChange?.text = "Raw Packet Received!"
-                        tvChange?.setTextColor(Color.CYAN)
-
-                        val jsonObject = JsonParser.parseString(text).asJsonObject
+                        val jsonParser = JsonParser.parseString(text).asJsonObject
                         
-                        // Binance Futures ticker mein check karein keys exist karti hain ya nahi
+                        // Jab hum /stream?streams= use karte hain, toh Binance data ko "data" key ke andar lapet kar bhejta hai
+                        val jsonObject = if (jsonParser.has("data")) jsonParser.getAsJsonObject("data") else jsonParser
+
                         if (jsonObject.has("c")) {
                             val price = jsonObject.get("c").asString.toDouble()
                             val change = jsonObject.get("P").asString.toDouble()
 
                             tvPrice?.text = String.format("$%.2f", price)
-                            tvPrice?.textSize = 26f // Price aane par text bara kar dein
+                            tvPrice?.textSize = 28f
                             tvChange?.text = String.format("24h Change: %.2f%%", change)
 
                             if (change >= 0) {
@@ -141,16 +142,15 @@ class FutureTradingActivity : AppCompatActivity() {
                                 tvPrice?.setTextColor(Color.parseColor("#F6465D"))
                             }
                         } else {
-                            // Agar custom stream data hai toh screen par poora raw json dikhaye
+                            // Agar custom structure hai toh screen par raw json dikhaye
                             tvPrice?.text = text
                             tvPrice?.setTextColor(Color.WHITE)
                         }
 
                     } catch (e: Exception) {
-                        // Agar parsing phat jaye toh error aur data dono screen par dikhein
                         tvPrice?.text = "Parse Error: ${e.localizedMessage}"
                         tvPrice?.setTextColor(Color.YELLOW)
-                        tvChange?.text = text // Raw json text down here
+                        tvChange?.text = text
                     }
                 }
             }
@@ -166,10 +166,5 @@ class FutureTradingActivity : AppCompatActivity() {
                 }
             }
         })
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        webSocket?.close(1000, "Exit")
-    }
-}
+        }
+        
