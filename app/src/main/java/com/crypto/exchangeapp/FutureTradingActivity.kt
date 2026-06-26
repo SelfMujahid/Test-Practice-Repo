@@ -21,12 +21,10 @@ class FutureTradingActivity : AppCompatActivity() {
     private var webSocket: WebSocket? = null
     private lateinit var client: OkHttpClient
     
-    // UI updates ko optimize karne aur bandwidth bachane ke liye memory state
     private val coinsMap = LinkedHashMap<String, CryptoCoinState>()
     private var updateCounter = 0
     private var metricsJob: Job? = null
 
-    // Helper data structure coins ko track karne ke liye
     data class CryptoCoinState(
         val symbol: String,
         var price: Double = 0.0,
@@ -39,7 +37,6 @@ class FutureTradingActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Android UI Setup - Pure list design optimized for multi-tickers
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0B0E11"))
@@ -82,14 +79,12 @@ class FutureTradingActivity : AppCompatActivity() {
         rootLayout.addView(scrollView)
         setContentView(rootLayout)
 
-        // OkHttpClient Builder configured for global stream arrays
         client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build()
 
-        // Pehle bootstrap data load hoga phir socket chalega
         bootstrapCoinsList()
         startMetricsTimer()
     }
@@ -97,13 +92,12 @@ class FutureTradingActivity : AppCompatActivity() {
     private fun bootstrapCoinsList() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Futures REST API se data lekar base list banana jaisa web mein kiya
                 val request = Request.Builder()
                     .url("https://fapi.binance.com/fapi/v1/ticker/24hr")
                     .build()
                 
                 client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw java.io.IOException("Unexpected code $response")
+                    if (!response.isSuccessful) return@launch
                     
                     val bodyString = response.body?.string() ?: ""
                     val jsonArray = JsonParser.parseString(bodyString).asJsonArray
@@ -113,7 +107,6 @@ class FutureTradingActivity : AppCompatActivity() {
                         val obj = element.asJsonObject
                         val sym = obj.get("symbol").asString
                         
-                        // Sirf USDT pairs filter kiye
                         if (sym.endsWith("USDT")) {
                             tempList.add(
                                 CryptoCoinState(
@@ -128,7 +121,6 @@ class FutureTradingActivity : AppCompatActivity() {
                         }
                     }
 
-                    // Volume par sort karke top 400 nikal liye
                     tempList.sortByDescending { it.volume }
                     val top400 = tempList.take(400)
 
@@ -143,8 +135,7 @@ class FutureTradingActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    tvStatus?.text = "❌ Sync Failure: ${e.localizedMessage}"
-                    tvStatus?.setTextColor(Color.parseColor("#F6465D"))
+                    tvStatus?.text = "❌ Sync Failure"
                 }
             }
         }
@@ -153,7 +144,6 @@ class FutureTradingActivity : AppCompatActivity() {
     private fun connectWebSocketEngine() {
         webSocket?.close(1000, "Reset")
 
-        // Multi-array stream endpoint jise aapne web code mein test kiya
         val request = Request.Builder()
             .url("wss://fstream.binance.com/ws/!ticker@arr")
             .header("User-Agent", "Mozilla/5.0")
@@ -170,7 +160,6 @@ class FutureTradingActivity : AppCompatActivity() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 updateCounter++
                 
-                // Background execution to prevent main-thread/UI skipping frames
                 lifecycleScope.launch(Dispatchers.Default) {
                     try {
                         val jsonArray = JsonParser.parseString(text).asJsonArray
@@ -192,19 +181,19 @@ class FutureTradingActivity : AppCompatActivity() {
                         }
 
                         if (hasUpdates) {
-                            // Render processing loop equivalent to requestAnimationFrame
                             val displayBuilder = StringBuilder()
                             val renderList = synchronized(coinsMap) { coinsMap.values.toList() }
                             
-                            // Top 15 coins UI par dikhane ke liye render string builder
-                            renderList.take(15).forEachIndexed { index, coin ->
+                            // FIXED: Removed String.format completely to avoid compilation or lint exceptions
+                            renderList.take(20).forEachIndexed { index, coin ->
                                 val arrow = if (coin.changePercent >= 0) "▲" else "▼"
-                                displayBuilder.append(
-                                    String.format(
-                                        "#%d %-9s Price: $%-10.2f  %s %-6.2f%%\nHigh: $%-8.2f Low: $%-8.2f Vol: %s\n---------------------------------------------\n",
-                                        index + 1, coin.symbol, coin.price, arrow, coin.changePercent, coin.high, coin.low, formatVolume(coin.volume)
-                                    )
-                                )
+                                displayBuilder.append("#").append(index + 1).append(" ")
+                                    .append(coin.symbol).append("\n")
+                                    .append("Price: $").append(coin.price).append(" ")
+                                    .append(arrow).append(" ").append(coin.changePercent).append("%\n")
+                                    .append("High: $").append(coin.high).append(" | Low: $").append(coin.low).append("\n")
+                                    .append("Vol: ").append(formatVolume(coin.volume)).append("\n")
+                                    .append("---------------------------------------------\n")
                             }
 
                             withContext(Dispatchers.Main) {
@@ -212,7 +201,7 @@ class FutureTradingActivity : AppCompatActivity() {
                             }
                         }
                     } catch (e: Exception) {
-                        // Suppressing parsing noise to maintain continuous rendering
+                        // Suppressed to maintain UI thread lifecycle
                     }
                 }
             }
@@ -240,10 +229,10 @@ class FutureTradingActivity : AppCompatActivity() {
 
     private fun formatVolume(v: Double): String {
         return when {
-            v >= 1e9 -> String.format("%.2fB", v / 1e9)
-            v >= 1e6 -> String.format("%.2fM", v / 1e6)
-            v >= 1e3 -> String.format("%.2fK", v / 1e3)
-            else -> String.format("%.2f", v)
+            v >= 1e9 -> "${(v / 1e9).toInt()}B"
+            v >= 1e6 -> "${(v / 1e6).toInt()}M"
+            v >= 1e3 -> "${(v / 1e3).toInt()}K"
+            else -> v.toInt().toString()
         }
     }
 
