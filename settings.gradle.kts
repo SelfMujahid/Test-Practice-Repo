@@ -14,4 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name "Test-Practice-Repo"
+rootProject.name = "Test-Practice-Repo"
+
+include(":app")
