@@ -18,17 +18,17 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFiles("proguard-android-optimize.txt"),"proguard-rules.pro")
+            proguardFiles(getDefaultProguardFiles("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
-    complieOptions {
-        sourceCompatibility = javaVersion.VERSION_1_8
-        targetCompatibility = javaVersion.VERSION_1_8
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 }
 
@@ -39,5 +39,5 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-corre:3.6.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
