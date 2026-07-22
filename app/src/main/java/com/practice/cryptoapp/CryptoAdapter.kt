@@ -12,6 +12,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.practice.cryptoapp.R
 
 class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
     RecyclerView.Adapter<CryptoAdapter.CryptoViewHolder>() {
