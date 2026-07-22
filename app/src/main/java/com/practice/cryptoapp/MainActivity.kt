@@ -4,19 +4,22 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONArray
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: CryptoAdapter
-    
+
     private val client = OkHttpClient()
     private var webSocket: WebSocket? = null
-    
-    // Quick lookups ke liye Map
-    private val cryptoMap = HashMap<String, CryptoItem>()
+    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+
+    private val rankedList = mutableListOf<CryptoItem>()
+    private val symbolMap = HashMap<String, CryptoItem>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,20 +31,68 @@ class MainActivity : AppCompatActivity() {
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // Binance WebSocket Tunnel Open Karein
-        connectWebSocketTunnel()
+        // Step 1: Binance Trading Volume ke hisaab se Ranking Load Karein
+        fetchBinanceRankings()
     }
 
-    private fun connectWebSocketTunnel() {
-        // Binance miniTicker Stream URL (All market tickers live)
+    private fun fetchBinanceRankings() {
+        activityScope.launch(Dispatchers.IO) {
+            try {
+                // Binance 24hr ticker endpoint (returns volume & prices for all pairs)
+                val jsonString = URL("https://api.binance.com/api/v3/ticker/24hr").readText()
+                val jsonArray = JSONArray(jsonString)
+
+                val tempList = mutableListOf<CryptoItem>()
+
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val symbol = obj.getString("symbol")
+                    val quoteVolume = obj.getDouble("quoteVolume") // 24H Volume in USDT
+                    val lastPrice = obj.getString("lastPrice")
+
+                    if (symbol.endsWith("USDT")) {
+                        val cleanSymbol = symbol.replace("USDT", " / USDT")
+                        val formattedPrice = lastPrice.toDoubleOrNull()?.let {
+                            String.format("%.4f", it)
+                        } ?: lastPrice
+
+                        tempList.add(CryptoItem(0, cleanSymbol, formattedPrice, quoteVolume))
+                    }
+                }
+
+                // Binance Par Highest Trading Volume wale Coins Top Par Rank Hoonge
+                tempList.sortByDescending { it.volume }
+
+                // Assign Ranking #1, #2, #3...
+                tempList.forEachIndexed { index, item ->
+                    item.rank = index + 1
+                    val rawSymbol = item.symbol.replace(" / USDT", "USDT")
+                    symbolMap[rawSymbol] = item
+                }
+
+                rankedList.clear()
+                rankedList.addAll(tempList)
+
+                withContext(Dispatchers.Main) {
+                    adapter.updateData(rankedList.toList())
+                    // Step 2: Live Prices Stream karne ke liye WebSocket Tunnel Start Karein
+                    connectBinanceWebSocket()
+                }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun connectBinanceWebSocket() {
         val request = Request.Builder()
             .url("wss://stream.binance.com:9443/ws/!miniTicker@arr")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
-                // Jab bhi Binance se tunnel mein live event aaye
-                parseAndRenderWebSocketData(text)
+                parseWebSocketStream(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -50,30 +101,32 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun parseAndRenderWebSocketData(jsonText: String) {
+    private fun parseWebSocketStream(jsonText: String) {
         try {
             val jsonArray = JSONArray(jsonText)
+            var priceUpdated = false
 
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                val symbol = obj.getString("s") // Symbol (e.g. BTCUSDT)
-                val closePrice = obj.getString("c") // Current Close Price
+                val symbol = obj.getString("s") // e.g. BTCUSDT
+                val closePrice = obj.getString("c")
 
-                if (symbol.endsWith("USDT")) {
-                    val cleanSymbol = symbol.replace("USDT", " / USDT")
+                symbolMap[symbol]?.let { item ->
                     val formattedPrice = closePrice.toDoubleOrNull()?.let {
                         String.format("%.4f", it)
                     } ?: closePrice
 
-                    cryptoMap[cleanSymbol] = CryptoItem(cleanSymbol, formattedPrice)
+                    if (item.price != formattedPrice) {
+                        item.price = formattedPrice
+                        priceUpdated = true
+                    }
                 }
             }
 
-            val updatedList = cryptoMap.values.toList()
-
-            // Main Thread par UI Screen update karein
-            runOnUiThread {
-                adapter.updateData(updatedList)
+            if (priceUpdated) {
+                runOnUiThread {
+                    adapter.updateData(rankedList.toList())
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -82,7 +135,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // App close hone par tunnel (WebSocket) disconnect kar dein
+        activityScope.cancel()
         webSocket?.close(1000, "App closed")
     }
 }
