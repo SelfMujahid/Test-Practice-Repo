@@ -33,52 +33,39 @@ class MainActivity : AppCompatActivity() {
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // Step 1: Binance Data Fetch Karein Aur Market Cap Rank Banayein
+        // Real Market Cap Ranking Fetch Karein
         fetchMarketCapRankings()
     }
 
     private fun fetchMarketCapRankings() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                // Binance 24hr Ticker Data
-                val jsonString = URL("https://api.binance.com/api/v3/ticker/24hr").readText()
+                // Official CoinGecko Market Cap Ranking API
+                val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false"
+                val jsonString = URL(url).readText()
                 val jsonArray = JSONArray(jsonString)
 
                 val tempList = mutableListOf<CryptoItem>()
 
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
-                    val symbol = obj.getString("symbol")
-                    val lastPrice = obj.getDouble("lastPrice")
-                    val volume = obj.getDouble("volume") // Base Asset Volume
+                    val rawSymbol = obj.getString("symbol").uppercase()
+                    val currentPrice = obj.optDouble("current_price", 0.0)
+                    val rank = obj.optInt("market_cap_rank", i + 1)
+                    val marketCap = obj.optDouble("market_cap", 0.0)
 
-                    if (symbol.endsWith("USDT") && lastPrice > 0) {
-                        val cleanSymbol = symbol.replace("USDT", " / USDT")
-                        
-                        // Market Cap Estimation (Price * Volume Proxy for Binance cap sorting)
-                        val estimatedMarketCap = lastPrice * volume
+                    val cleanSymbol = "$rawSymbol / USDT"
+                    val formattedPrice = formatPrice(currentPrice)
 
-                        val formattedPrice = formatPrice(lastPrice)
+                    val item = CryptoItem(
+                        rank = rank,
+                        symbol = cleanSymbol,
+                        price = formattedPrice,
+                        marketCap = marketCap
+                    )
 
-                        tempList.add(
-                            CryptoItem(
-                                rank = 0,
-                                symbol = cleanSymbol,
-                                price = formattedPrice,
-                                marketCap = estimatedMarketCap
-                            )
-                        )
-                    }
-                }
-
-                // Market Cap ke hisaab se Sort (Highest Market Cap Pehle)
-                tempList.sortByDescending { it.marketCap }
-
-                // Assign Rank #1, #2, #3...
-                tempList.forEachIndexed { index, item ->
-                    item.rank = index + 1
-                    val rawSymbol = item.symbol.replace(" / USDT", "USDT")
-                    symbolMap[rawSymbol] = item
+                    tempList.add(item)
+                    symbolMap["${rawSymbol}USDT"] = item
                 }
 
                 rankedList.clear()
@@ -86,7 +73,7 @@ class MainActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     adapter.updateData(rankedList.toList())
-                    // Step 2: Live Prices WebSocket Stream
+                    // Binance WebSocket Tunnel Open Karein
                     connectBinanceWebSocket()
                 }
 
@@ -119,7 +106,7 @@ class MainActivity : AppCompatActivity() {
 
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                val symbol = obj.getString("s") // e.g. BTCUSDT
+                val symbol = obj.getString("s")
                 val closePrice = obj.getDouble("c")
 
                 symbolMap[symbol]?.let { item ->
@@ -142,7 +129,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Number Formatting Function (66060.02 -> 66,060.02 ya 66,060)
     private fun formatPrice(price: Double): String {
         val formatter = NumberFormat.getNumberInstance(Locale.US)
         return if (price >= 1.0) {
@@ -150,7 +136,6 @@ class MainActivity : AppCompatActivity() {
             formatter.minimumFractionDigits = 2
             formatter.format(price)
         } else {
-            // Chote coins ke liye decimal accuracy
             formatter.maximumFractionDigits = 6
             formatter.minimumFractionDigits = 2
             formatter.format(price)
