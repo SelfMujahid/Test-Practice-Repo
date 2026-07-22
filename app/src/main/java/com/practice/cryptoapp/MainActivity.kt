@@ -4,15 +4,19 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.*
+import okhttp3.*
 import org.json.JSONArray
-import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: CryptoAdapter
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
+    
+    private val client = OkHttpClient()
+    private var webSocket: WebSocket? = null
+    
+    // Quick lookups ke liye Map
+    private val cryptoMap = HashMap<String, CryptoItem>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -20,57 +24,65 @@ class MainActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.cryptoRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
-        
+
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // Real-time loop to fetch 300+ live crypto prices from Binance
-        startRealTimeUpdates()
+        // Binance WebSocket Tunnel Open Karein
+        connectWebSocketTunnel()
     }
 
-    private fun startRealTimeUpdates() {
-        activityScope.launch {
-            while (isActive) {
-                val liveData = fetchCryptoPrices()
-                if (liveData.isNotEmpty()) {
-                    adapter.updateData(liveData)
-                }
-                // Updates every 3 seconds
-                delay(3000) 
+    private fun connectWebSocketTunnel() {
+        // Binance miniTicker Stream URL (All market tickers live)
+        val request = Request.Builder()
+            .url("wss://stream.binance.com:9443/ws/!miniTicker@arr")
+            .build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                // Jab bhi Binance se tunnel mein live event aaye
+                parseAndRenderWebSocketData(text)
             }
-        }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                t.printStackTrace()
+            }
+        })
     }
 
-    private suspend fun fetchCryptoPrices(): List<CryptoItem> = withContext(Dispatchers.IO) {
-        val cryptoList = mutableListOf<CryptoItem>()
+    private fun parseAndRenderWebSocketData(jsonText: String) {
         try {
-            // Public Binance Ticker Price Endpoint (Returns 300+ USDT pairs)
-            val jsonString = URL("https://api.binance.com/api/v3/ticker/price").readText()
-            val jsonArray = JSONArray(jsonString)
+            val jsonArray = JSONArray(jsonText)
 
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                val symbol = obj.getString("symbol")
-                val price = obj.getString("price")
+                val symbol = obj.getString("s") // Symbol (e.g. BTCUSDT)
+                val closePrice = obj.getString("c") // Current Close Price
 
-                // Filter USDT pairs for clean rendering
                 if (symbol.endsWith("USDT")) {
                     val cleanSymbol = symbol.replace("USDT", " / USDT")
-                    val formattedPrice = price.toDoubleOrNull()?.let {
+                    val formattedPrice = closePrice.toDoubleOrNull()?.let {
                         String.format("%.4f", it)
-                    } ?: price
+                    } ?: closePrice
 
-                    cryptoList.add(CryptoItem(cleanSymbol, formattedPrice))
+                    cryptoMap[cleanSymbol] = CryptoItem(cleanSymbol, formattedPrice)
                 }
+            }
+
+            val updatedList = cryptoMap.values.toList()
+
+            // Main Thread par UI Screen update karein
+            runOnUiThread {
+                adapter.updateData(updatedList)
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return@withContext cryptoList
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        activityScope.cancel()
+        // App close hone par tunnel (WebSocket) disconnect kar dein
+        webSocket?.close(1000, "App closed")
     }
 }
