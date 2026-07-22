@@ -3,17 +3,18 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#121212"
-    android:padding="16dp">
+    android:background="#F5F7FA"
+    android:padding="12dp">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Live Crypto Prices"
-        android:textColor="#FFFFFF"
-        android:textSize="24sp"
+        android:text="Crypto Market Cap Rankings"
+        android:textColor="#1E2329"
+        android:textSize="22sp"
         android:textStyle="bold"
-        android:paddingBottom="16dp" />
+        android:paddingBottom="12dp"
+        android:paddingTop="4dp" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/cryptoRecyclerView"
