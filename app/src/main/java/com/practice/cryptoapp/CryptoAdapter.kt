@@ -20,7 +20,7 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
         return CryptoViewHolder(view)
     }
 
-    override fun onBindViewHolder(holder: CryptoViewHolder, position: position) {
+    override fun onBindViewHolder(holder: CryptoViewHolder, position: Int) {
         val item = cryptoList[position]
         holder.tvSymbol.text = item.symbol
         holder.tvPrice.text = "$${item.price}"
