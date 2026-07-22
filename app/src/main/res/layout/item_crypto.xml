@@ -3,16 +3,17 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:padding="12dp"
-    android:background="#1E1E1E"
-    android:layout_marginBottom="8dp"
+    android:padding="14dp"
+    android:background="#FFFFFF"
+    android:layout_marginBottom="6dp"
+    android:elevation="2dp"
     android:gravity="center_vertical">
 
     <TextView
         android:id="@+id/tvRank"
-        android:layout_width="36dp"
+        android:layout_width="38dp"
         android:layout_height="wrap_content"
-        android:textColor="#FFB800"
+        android:textColor="#707A8A"
         android:textSize="14sp"
         android:textStyle="bold" />
 
@@ -21,7 +22,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="#FFFFFF"
+        android:textColor="#1E2329"
         android:textSize="16sp"
         android:textStyle="bold" />
 
@@ -29,7 +30,7 @@
         android:id="@+id/tvPrice"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#00FF66"
+        android:textColor="#0ECB81"
         android:textSize="16sp"
         android:textStyle="bold" />
 
