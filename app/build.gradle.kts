@@ -4,6 +4,7 @@ plugins {
 }
 
 android {
+    namespace = "com.practice.cryptoapp"
     compileSdk = 35
 
     defaultConfig {
