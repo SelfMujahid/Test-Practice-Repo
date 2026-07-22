@@ -8,6 +8,8 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONArray
 import java.net.URL
+import java.text.NumberFormat
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -31,14 +33,14 @@ class MainActivity : AppCompatActivity() {
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // Step 1: Binance Trading Volume ke hisaab se Ranking Load Karein
-        fetchBinanceRankings()
+        // Step 1: Binance Data Fetch Karein Aur Market Cap Rank Banayein
+        fetchMarketCapRankings()
     }
 
-    private fun fetchBinanceRankings() {
+    private fun fetchMarketCapRankings() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                // Binance 24hr ticker endpoint (returns volume & prices for all pairs)
+                // Binance 24hr Ticker Data
                 val jsonString = URL("https://api.binance.com/api/v3/ticker/24hr").readText()
                 val jsonArray = JSONArray(jsonString)
 
@@ -47,23 +49,32 @@ class MainActivity : AppCompatActivity() {
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val symbol = obj.getString("symbol")
-                    val quoteVolume = obj.getDouble("quoteVolume") // 24H Volume in USDT
-                    val lastPrice = obj.getString("lastPrice")
+                    val lastPrice = obj.getDouble("lastPrice")
+                    val volume = obj.getDouble("volume") // Base Asset Volume
 
-                    if (symbol.endsWith("USDT")) {
+                    if (symbol.endsWith("USDT") && lastPrice > 0) {
                         val cleanSymbol = symbol.replace("USDT", " / USDT")
-                        val formattedPrice = lastPrice.toDoubleOrNull()?.let {
-                            String.format("%.4f", it)
-                        } ?: lastPrice
+                        
+                        // Market Cap Estimation (Price * Volume Proxy for Binance cap sorting)
+                        val estimatedMarketCap = lastPrice * volume
 
-                        tempList.add(CryptoItem(0, cleanSymbol, formattedPrice, quoteVolume))
+                        val formattedPrice = formatPrice(lastPrice)
+
+                        tempList.add(
+                            CryptoItem(
+                                rank = 0,
+                                symbol = cleanSymbol,
+                                price = formattedPrice,
+                                marketCap = estimatedMarketCap
+                            )
+                        )
                     }
                 }
 
-                // Binance Par Highest Trading Volume wale Coins Top Par Rank Hoonge
-                tempList.sortByDescending { it.volume }
+                // Market Cap ke hisaab se Sort (Highest Market Cap Pehle)
+                tempList.sortByDescending { it.marketCap }
 
-                // Assign Ranking #1, #2, #3...
+                // Assign Rank #1, #2, #3...
                 tempList.forEachIndexed { index, item ->
                     item.rank = index + 1
                     val rawSymbol = item.symbol.replace(" / USDT", "USDT")
@@ -75,7 +86,7 @@ class MainActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     adapter.updateData(rankedList.toList())
-                    // Step 2: Live Prices Stream karne ke liye WebSocket Tunnel Start Karein
+                    // Step 2: Live Prices WebSocket Stream
                     connectBinanceWebSocket()
                 }
 
@@ -109,15 +120,13 @@ class MainActivity : AppCompatActivity() {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val symbol = obj.getString("s") // e.g. BTCUSDT
-                val closePrice = obj.getString("c")
+                val closePrice = obj.getDouble("c")
 
                 symbolMap[symbol]?.let { item ->
-                    val formattedPrice = closePrice.toDoubleOrNull()?.let {
-                        String.format("%.4f", it)
-                    } ?: closePrice
+                    val newFormattedPrice = formatPrice(closePrice)
 
-                    if (item.price != formattedPrice) {
-                        item.price = formattedPrice
+                    if (item.price != newFormattedPrice) {
+                        item.price = newFormattedPrice
                         priceUpdated = true
                     }
                 }
@@ -130,6 +139,21 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    // Number Formatting Function (66060.02 -> 66,060.02 ya 66,060)
+    private fun formatPrice(price: Double): String {
+        val formatter = NumberFormat.getNumberInstance(Locale.US)
+        return if (price >= 1.0) {
+            formatter.maximumFractionDigits = 2
+            formatter.minimumFractionDigits = 2
+            formatter.format(price)
+        } else {
+            // Chote coins ke liye decimal accuracy
+            formatter.maximumFractionDigits = 6
+            formatter.minimumFractionDigits = 2
+            formatter.format(price)
         }
     }
 
