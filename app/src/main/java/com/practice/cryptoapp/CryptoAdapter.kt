@@ -22,11 +22,21 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
     }
 
     override fun onBindViewHolder(holder: CryptoViewHolder, position: Int) {
-        val item = cryptoList[position]
-        holder.tvRank.text = "#${item.rank}"
-        holder.tvSymbol.text = item.symbol
-        holder.tvPrice.text = "$${item.price}"
+    val item = cryptoList[position]
+    
+    // 1. '# ' Hash Symbol Remove Kar Diya
+    holder.tvRank.text = item.rank.toString()
+    holder.tvSymbol.text = item.symbol
+    holder.tvPrice.text = "$${item.price}"
+
+    // 2. Price Change Dynamic Color Logic (Green for UP, Red for DOWN, Black for NO CHANGE)
+    when (item.priceState) {
+        PriceState.UP -> holder.tvPrice.setTextColor(android.graphics.Color.parseColor("#0ECB81"))   // Green
+        PriceState.DOWN -> holder.tvPrice.setTextColor(android.graphics.Color.parseColor("#F6465D")) // Red
+        PriceState.NEUTRAL -> holder.tvPrice.setTextColor(android.graphics.Color.parseColor("#1E2329")) // Dark Black/Gray
     }
+}
+
 
     override fun getItemCount(): Int = cryptoList.size
 
