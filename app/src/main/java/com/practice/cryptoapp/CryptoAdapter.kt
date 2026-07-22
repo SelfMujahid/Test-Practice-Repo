@@ -10,6 +10,7 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
     RecyclerView.Adapter<CryptoAdapter.CryptoViewHolder>() {
 
     class CryptoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val tvRank: TextView = itemView.findViewById(R.id.tvRank)
         val tvSymbol: TextView = itemView.findViewById(R.id.tvSymbol)
         val tvPrice: TextView = itemView.findViewById(R.id.tvPrice)
     }
@@ -22,6 +23,7 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
 
     override fun onBindViewHolder(holder: CryptoViewHolder, position: Int) {
         val item = cryptoList[position]
+        holder.tvRank.text = "#${item.rank}"
         holder.tvSymbol.text = item.symbol
         holder.tvPrice.text = "$${item.price}"
     }
