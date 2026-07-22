@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_home"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:title="Home" />
+    <item
+        android:id="@+id/nav_spot"
+        android:icon="@android:drawable/ic_menu_sort_by_size"
+        android:title="Spot" />
+    <item
+        android:id="@+id/nav_futures"
+        android:icon="@android:drawable/ic_menu_slideshow"
+        android:title="Futures" />
+    <item
+        android:id="@+id/nav_bot"
+        android:icon="@android:drawable/ic_menu_manage"
+        android:title="Bot" />
+</menu>
