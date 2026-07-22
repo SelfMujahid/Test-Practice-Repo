@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.practice.cryptoapp.R
@@ -25,7 +24,6 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
         val tvSymbol: TextView = itemView.findViewById(R.id.tvCoinSymbol)
         val tvPrice: TextView = itemView.findViewById(R.id.tvPrice)
         val tvChange1h: TextView = itemView.findViewById(R.id.tvChange1h)
-        val tvChange8h: TextView = itemView.findViewById(R.id.tvChange8h)
         val tvChange24h: TextView = itemView.findViewById(R.id.tvChange24h)
         val tvChange7d: TextView = itemView.findViewById(R.id.tvChange7d)
         val imgLogo: ImageView = itemView.findViewById(R.id.imgCoinLogo)
@@ -41,21 +39,27 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
         val item = cryptoList[position]
 
         holder.tvRank.text = item.rank.toString()
-        holder.tvSymbol.text = item.symbol
         holder.tvName.text = item.name
+        holder.tvSymbol.text = item.symbol
         holder.tvPrice.text = "$${item.price}"
 
-        // Set changes with color (0% is Gray)
-        setChangeText(holder.tvChange1h, item.change1h)
-        setChangeText(holder.tvChange8h, item.change8h)
-        setChangeText(holder.tvChange24h, item.change24h)
-        setChangeText(holder.tvChange7d, item.change7d)
-
+        // Image Loading via Glide
         if (item.logoUrl.isNotEmpty()) {
-            Glide.with(holder.itemView.context).load(item.logoUrl).into(holder.imgLogo)
+            Glide.with(holder.itemView.context)
+                .load(item.logoUrl)
+                .into(holder.imgLogo)
         }
 
-        // Price Flash Logic (0.5s)
+        // 1h %
+        bindPercentage(holder.tvChange1h, item.change1h)
+
+        // 24h %
+        bindPercentage(holder.tvChange24h, item.change24h)
+
+        // 7d %
+        bindPercentage(holder.tvChange7d, item.change7d)
+
+        // Flash 0.5s Animation Logic
         if (item.isFlashed) {
             val animRes = if (item.priceState == PriceState.UP) R.anim.flash_up else R.anim.flash_down
             val flashColor = if (item.priceState == PriceState.UP) "#00E676" else "#FF1744"
@@ -72,31 +76,16 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
         }
     }
 
-    private fun setChangeText(tv: TextView, value: Double) {
-        tv.text = if (value > 0) "+%.2f%%".format(value) else "%.2f%%".format(value)
-        when {
-            value > 0 -> tv.setTextColor(Color.parseColor("#00C853"))
-            value < 0 -> tv.setTextColor(Color.parseColor("#FF1744"))
-            else -> tv.setTextColor(Color.parseColor("#888888")) // Gray if 0%
-        }
+    private fun bindPercentage(textView: TextView, value: Double) {
+        val isUp = value >= 0
+        textView.text = if (isUp) "+%.2f%%".format(value) else "%.2f%%".format(value)
+        textView.setTextColor(if (isUp) Color.parseColor("#00C853") else Color.parseColor("#FF1744"))
     }
 
     override fun getItemCount(): Int = cryptoList.size
 
     fun updateData(newList: List<CryptoItem>) {
-        val diffCallback = CryptoDiffCallback(this.cryptoList, newList)
-        val diffResult = DiffUtil.calculateDiff(diffCallback)
         this.cryptoList = newList
-        diffResult.dispatchUpdatesTo(this)
-    }
-
-    class CryptoDiffCallback(
-        private val oldList: List<CryptoItem>,
-        private val newList: List<CryptoItem>
-    ) : DiffUtil.Callback() {
-        override fun getOldListSize(): Int = oldList.size
-        override fun getNewListSize(): Int = newList.size
-        override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean = oldList[oldPos].symbol == newList[newPos].symbol
-        override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean = oldList[oldPos] == newList[newPos]
+        notifyDataSetChanged()
     }
 }
