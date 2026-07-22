@@ -1,14 +1,10 @@
 package com.practice.cryptoapp
 
-enum class PriceState {
-    UP, DOWN, NEUTRAL
-}
-
 data class CryptoItem(
-    var rank: Int,
-    val symbol: String,
-    var price: String,
-    val marketCap: Double,
-    var rawPrice: Double = 0.0,
-    var priceState: PriceState = PriceState.NEUTRAL
+    val rank: Int,
+    val symbol: String,      // e.g. "BTC"
+    val name: String,        // e.g. "Bitcoin"
+    var price: String,       // Formatted Price String
+    var rawPrice: Double,    // Raw Price for Comparison
+    var change24h: Double    // Percentage Change e.g. 2.45
 )
