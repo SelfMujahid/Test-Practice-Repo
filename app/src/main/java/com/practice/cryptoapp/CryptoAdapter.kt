@@ -32,7 +32,7 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CryptoViewHolder {
         val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_crypto, parent, false)
+            .inflate(R.layout.item_crypto_row, parent, false)
         return CryptoViewHolder(view)
     }
 
