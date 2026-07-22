@@ -33,14 +33,12 @@ class MainActivity : AppCompatActivity() {
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // Real Market Cap Ranking Fetch Karein
         fetchMarketCapRankings()
     }
 
     private fun fetchMarketCapRankings() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                // Official CoinGecko Market Cap Ranking API
                 val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false"
                 val jsonString = URL(url).readText()
                 val jsonArray = JSONArray(jsonString)
@@ -61,7 +59,9 @@ class MainActivity : AppCompatActivity() {
                         rank = rank,
                         symbol = cleanSymbol,
                         price = formattedPrice,
-                        marketCap = marketCap
+                        marketCap = marketCap,
+                        rawPrice = currentPrice,
+                        priceState = PriceState.NEUTRAL
                     )
 
                     tempList.add(item)
@@ -73,7 +73,6 @@ class MainActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     adapter.updateData(rankedList.toList())
-                    // Binance WebSocket Tunnel Open Karein
                     connectBinanceWebSocket()
                 }
 
@@ -107,13 +106,18 @@ class MainActivity : AppCompatActivity() {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val symbol = obj.getString("s")
-                val closePrice = obj.getDouble("c")
+                val newRawPrice = obj.getDouble("c")
 
                 symbolMap[symbol]?.let { item ->
-                    val newFormattedPrice = formatPrice(closePrice)
+                    if (item.rawPrice != newRawPrice) {
+                        item.priceState = when {
+                            newRawPrice > item.rawPrice -> PriceState.UP
+                            newRawPrice < item.rawPrice -> PriceState.DOWN
+                            else -> PriceState.NEUTRAL
+                        }
 
-                    if (item.price != newFormattedPrice) {
-                        item.price = newFormattedPrice
+                        item.rawPrice = newRawPrice
+                        item.price = formatPrice(newRawPrice)
                         priceUpdated = true
                     }
                 }
