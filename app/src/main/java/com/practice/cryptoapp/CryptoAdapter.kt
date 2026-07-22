@@ -1,74 +1,101 @@
 package com.practice.cryptoapp
 
-import android.animation.ArgbEvaluator
-import android.animation.ValueAnimator
 import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
+import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import kotlin.math.abs
+import com.bumptech.glide.Glide
 
-class CryptoAdapter(private var list: List<CryptoItem>) :
+class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
     RecyclerView.Adapter<CryptoAdapter.CryptoViewHolder>() {
 
-    class CryptoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    inner class CryptoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val tvRank: TextView = itemView.findViewById(R.id.tvRank)
-        val tvName: TextView = itemView.findViewById(R.id.tvName)
-        val tvSymbol: TextView = itemView.findViewById(R.id.tvSymbol)
+        val tvName: TextView = itemView.findViewById(R.id.tvCoinName)
+        val tvSymbol: TextView = itemView.findViewById(R.id.tvCoinSymbol)
         val tvPrice: TextView = itemView.findViewById(R.id.tvPrice)
-        val tvChange: TextView = itemView.findViewById(R.id.tvChange)
+        val tvChange1h: TextView = itemView.findViewById(R.id.tvChange1h)
+        val tvChange8h: TextView = itemView.findViewById(R.id.tvChange8h)
+        val tvChange24h: TextView = itemView.findViewById(R.id.tvChange24h)
+        val tvChange7d: TextView = itemView.findViewById(R.id.tvChange7d)
+        val imgLogo: ImageView = itemView.findViewById(R.id.imgCoinLogo)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CryptoViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_crypto, parent, false)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_crypto_row, parent, false)
         return CryptoViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: CryptoViewHolder, position: Int) {
-        val item = list[position]
+        val item = cryptoList[position]
 
         holder.tvRank.text = item.rank.toString()
-        holder.tvName.text = item.name
         holder.tvSymbol.text = item.symbol
+        holder.tvName.text = item.name
         holder.tvPrice.text = "$${item.price}"
 
-        // Set 24h Change Badge Color & Text
-        val isUp = item.change24h >= 0
-        holder.tvChange.text = String.format(if (isUp) "▲ +%.2f%%" else "▼ %.2f%%", abs(item.change24h))
-        holder.tvChange.setTextColor(ContextCompat.getColor(holder.itemView.context, if (isUp) R.color.green_up else R.color.red_down))
-        holder.tvChange.setBackgroundResource(if (isUp) R.drawable.bg_change_up else R.drawable.bg_change_down)
-    }
+        // Set changes with color (0% is Gray)
+        setChangeText(holder.tvChange1h, item.change1h)
+        setChangeText(holder.tvChange8h, item.change8h)
+        setChangeText(holder.tvChange24h, item.change24h)
+        setChangeText(holder.tvChange7d, item.change7d)
 
-    // Partial Refresh for Smooth Flash Animations
-    override fun onBindViewHolder(holder: CryptoViewHolder, position: Int, payloads: MutableList<Any>) {
-        if (payloads.isNotEmpty()) {
-            val direction = payloads[0] as String
-            val item = list[position]
+        if (item.logoUrl.isNotEmpty()) {
+            Glide.with(holder.itemView.context).load(item.logoUrl).into(holder.imgLogo)
+        }
 
-            holder.tvPrice.text = "$${item.price}"
+        // Price Flash Logic (0.5s)
+        if (item.isFlashed) {
+            val animRes = if (item.priceState == PriceState.UP) R.anim.flash_up else R.anim.flash_down
+            val flashColor = if (item.priceState == PriceState.UP) "#00E676" else "#FF1744"
 
-            // 0.5 Sec Flash Animation (Green/Red -> Black)
-            val startColor = if (direction == "UP") Color.parseColor("#00E676") else Color.parseColor("#FF1744")
-            val endColor = Color.parseColor("#111111") // Default Black
+            holder.tvPrice.setTextColor(Color.parseColor(flashColor))
+            holder.tvPrice.startAnimation(AnimationUtils.loadAnimation(holder.itemView.context, animRes))
 
-            val colorAnimation = ValueAnimator.ofObject(ArgbEvaluator(), startColor, endColor)
-            colorAnimation.duration = 500 // 0.5 Seconds Flash
-            colorAnimation.addUpdateListener { animator ->
-                holder.tvPrice.setTextColor(animator.animatedValue as Int)
-            }
-            colorAnimation.start()
+            mainHandler.postDelayed({
+                holder.tvPrice.setTextColor(Color.parseColor("#111111"))
+                item.isFlashed = false
+            }, 500)
         } else {
-            super.onBindViewHolder(holder, position, payloads)
+            holder.tvPrice.setTextColor(Color.parseColor("#111111"))
         }
     }
 
-    override fun getItemCount(): Int = list.size
+    private fun setChangeText(tv: TextView, value: Double) {
+        tv.text = if (value > 0) "+%.2f%%".format(value) else "%.2f%%".format(value)
+        when {
+            value > 0 -> tv.setTextColor(Color.parseColor("#00C853"))
+            value < 0 -> tv.setTextColor(Color.parseColor("#FF1744"))
+            else -> tv.setTextColor(Color.parseColor("#888888")) // Gray if 0%
+        }
+    }
+
+    override fun getItemCount(): Int = cryptoList.size
 
     fun updateData(newList: List<CryptoItem>) {
-        this.list = newList
-        notifyDataSetChanged()
+        val diffCallback = CryptoDiffCallback(this.cryptoList, newList)
+        val diffResult = DiffUtil.calculateDiff(diffCallback)
+        this.cryptoList = newList
+        diffResult.dispatchUpdatesTo(this)
+    }
+
+    class CryptoDiffCallback(
+        private val oldList: List<CryptoItem>,
+        private val newList: List<CryptoItem>
+    ) : DiffUtil.Callback() {
+        override fun getOldListSize(): Int = oldList.size
+        override fun getNewListSize(): Int = newList.size
+        override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean = oldList[oldPos].symbol == newList[newPos].symbol
+        override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean = oldList[oldPos] == newList[newPos]
     }
 }
