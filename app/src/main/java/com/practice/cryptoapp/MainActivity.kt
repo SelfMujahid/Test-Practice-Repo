@@ -2,9 +2,12 @@ package com.practice.cryptoapp
 
 import android.graphics.Color
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,47 +24,136 @@ class MainActivity : AppCompatActivity() {
     private var webSocket: WebSocket? = null
     private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
-    private val allMasterList = mutableListOf<CryptoItem>() // All 300+ coins
-    private val displayedList = mutableListOf<CryptoItem>()  // Currently shown
+    private val allMasterList = mutableListOf<CryptoItem>() // Up to 1,000 coins
+    private val filteredList = mutableListOf<CryptoItem>()  // Active filter
+    private val displayedList = mutableListOf<CryptoItem>() // Page view
     private val symbolMap = HashMap<String, CryptoItem>()
 
-    // Pagination variables
+    private var currentFilter = "ALL" // ALL, GAINERS, LOSERS
     private var currentLimit = 20
+    private var isDarkMode = false
+
     private lateinit var btnPrevious: Button
     private lateinit var btnNext: Button
     private lateinit var tvPageCount: TextView
+    private lateinit var etSearch: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1. Logo Popup Menu
-        val logoImg = findViewById<ImageView>(R.id.imgAppLogo)
-        logoImg.setOnClickListener { showLogoMenu(it) }
+        // 1. Menu Trigger (3 Lines & Logo)
+        val menuBtn = findViewById<ImageView>(R.id.imgMenuIcon)
+        val logoBtn = findViewById<ImageView>(R.id.imgAppLogo)
+        val openMenuListener = View.OnClickListener { showSettingsMenu(it) }
+        menuBtn.setOnClickListener(openMenuListener)
+        logoBtn.setOnClickListener(openMenuListener)
 
         // 2. Views Setup
         btnPrevious = findViewById(R.id.btnPrevious)
         btnNext = findViewById(R.id.btnNext)
         tvPageCount = findViewById(R.id.tvPageCount)
+        etSearch = findViewById(R.id.etSearch)
 
         recyclerView = findViewById(R.id.cryptoRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // 3. Setup Buttons & Listeners
+        // 3. Setup Listeners
         setupPaginationListeners()
-        setupPnlChips()
+        setupSearchAndFilters()
 
-        // 4. Fetch Coins Data
-        fetchTop300CoinGecko()
+        // 4. Fetch 1,000 Coins
+        fetchTop1000Coins()
+    }
+
+    private fun showSettingsMenu(view: View) {
+        val popup = PopupMenu(this, view)
+        popup.menu.add("Liquidations")
+        popup.menu.add("Wallet Transactions")
+        popup.menu.add("Bubbles")
+        popup.menu.add(if (isDarkMode) "☀️ Light Mode" else "🌙 Dark Mode")
+
+        popup.setOnMenuItemClickListener { item ->
+            when (item.title.toString()) {
+                "☀️ Light Mode", "🌙 Dark Mode" -> {
+                    isDarkMode = !isDarkMode
+                    AppCompatDelegate.setDefaultNightMode(
+                        if (isDarkMode) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+                    )
+                }
+                else -> Toast.makeText(this, "Selected: ${item.title}", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun setupSearchAndFilters() {
+        val btnSearchIcon = findViewById<ImageView>(R.id.btnSearchIcon)
+        val btnAll = findViewById<Button>(R.id.btnAll)
+        val btnGainers = findViewById<Button>(R.id.btnGainers)
+        val btnLosers = findViewById<Button>(R.id.btnLosers)
+
+        // Instant Real-time Search
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                applyFiltersAndSearch()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        btnSearchIcon.setOnClickListener { applyFiltersAndSearch() }
+
+        // Filter Buttons
+        btnAll.setOnClickListener {
+            currentFilter = "ALL"
+            applyFiltersAndSearch()
+        }
+        btnGainers.setOnClickListener {
+            currentFilter = "GAINERS"
+            applyFiltersAndSearch()
+        }
+        btnLosers.setOnClickListener {
+            currentFilter = "LOSERS"
+            applyFiltersAndSearch()
+        }
+    }
+
+    private fun applyFiltersAndSearch() {
+        val query = etSearch.text.toString().trim().lowercase()
+
+        // 1. Filter by Search Query
+        var temp = if (query.isEmpty()) {
+            allMasterList.toMutableList()
+        } else {
+            allMasterList.filter {
+                it.name.lowercase().contains(query) || it.symbol.lowercase().contains(query)
+            }.toMutableList()
+        }
+
+        // 2. Filter by Category (Gainers / Losers)
+        when (currentFilter) {
+            "GAINERS" -> temp.sortByDescending { it.change24h }
+            "LOSERS" -> temp.sortBy { it.change24h }
+            "ALL" -> temp.sortBy { it.rank }
+        }
+
+        filteredList.clear()
+        filteredList.addAll(temp)
+
+        // Reset limit to 20 on search/filter change
+        currentLimit = 20
+        updateListDisplay()
     }
 
     private fun setupPaginationListeners() {
         btnNext.setOnClickListener {
-            if (currentLimit < allMasterList.size) {
+            if (currentLimit < filteredList.size) {
                 currentLimit += 50
-                if (currentLimit > allMasterList.size) currentLimit = allMasterList.size
+                if (currentLimit > filteredList.size) currentLimit = filteredList.size
                 updateListDisplay()
             }
         }
@@ -77,64 +169,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateListDisplay() {
         displayedList.clear()
-        displayedList.addAll(allMasterList.take(currentLimit))
+        displayedList.addAll(filteredList.take(currentLimit))
         adapter.updateData(displayedList.toList())
 
-        // UI Button States Update
-        tvPageCount.text = "Showing $currentLimit of ${allMasterList.size}"
+        tvPageCount.text = "Showing ${displayedList.size} of ${filteredList.size}"
         btnPrevious.isEnabled = currentLimit > 20
-        btnNext.isEnabled = currentLimit < allMasterList.size
+        btnNext.isEnabled = currentLimit < filteredList.size
 
-        // Connect WebSocket for currently displayed coins
         connectBinanceWebSocket()
     }
 
-    private fun showLogoMenu(view: View) {
-        val popup = PopupMenu(this, view)
-        popup.menu.add("Liquidations")
-        popup.menu.add("Wallet Transactions")
-        popup.menu.add("Drops")
-        popup.menu.add("Bubbles")
-        popup.menu.add("Order Flow")
-        popup.setOnMenuItemClickListener {
-            Toast.makeText(this, "Opened: ${it.title}", Toast.LENGTH_SHORT).show()
-            true
-        }
-        popup.show()
-    }
-
-    private fun setupPnlChips() {
-        val container = findViewById<LinearLayout>(R.id.pnlChipsContainer)
-        val timeframes = listOf(
-            "24h" to -3.2, "2d" to 45.0, "3d" to 18.2,
-            "4d" to -5.1, "5d" to 22.0, "6d" to 14.8, "7d" to 35.4,
-            "15d" to -12.0, "30d" to 110.5
-        )
-
-        for ((tf, pnl) in timeframes) {
-            val tv = TextView(this)
-            val isProfit = pnl >= 0
-            tv.text = "$tf: ${if (isProfit) "+" else ""}$pnl%"
-            tv.setTextColor(if (isProfit) Color.parseColor("#00C853") else Color.parseColor("#FF1744"))
-            tv.setBackgroundColor(Color.parseColor("#F0F0F0"))
-            tv.setPadding(16, 8, 16, 8)
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.setMargins(0, 0, 12, 0)
-            tv.layoutParams = params
-            container.addView(tv)
-        }
-    }
-
-    private fun fetchTop300CoinGecko() {
+    private fun fetchTop1000Coins() {
         activityScope.launch(Dispatchers.IO) {
             try {
                 val tempList = mutableListOf<CryptoItem>()
 
-                for (page in 1..2) {
-                    val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=150&page=$page&sparkline=false&price_change_percentage=1h,24h,7d"
+                // Fetch 4 pages * 250 = 1,000 Coins
+                for (page in 1..4) {
+                    val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false&price_change_percentage=1h,24h,7d"
                     val jsonString = URL(url).readText()
                     val jsonArray = JSONArray(jsonString)
 
@@ -170,7 +222,7 @@ class MainActivity : AppCompatActivity() {
                 allMasterList.addAll(tempList)
 
                 withContext(Dispatchers.Main) {
-                    updateListDisplay()
+                    applyFiltersAndSearch()
                 }
 
             } catch (e: Exception) {
@@ -180,9 +232,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connectBinanceWebSocket() {
-        webSocket?.close(1000, "Switching Limit")
+        webSocket?.close(1000, "Switching List")
 
-        val streams = displayedList.joinToString("/") { "${it.symbol.lowercase()}usdt@ticker" }
+        if (displayedList.isEmpty()) return
+
+        val streams = displayedList.take(50).joinToString("/") { "${it.symbol.lowercase()}usdt@ticker" }
         val request = Request.Builder()
             .url("wss://stream.binance.com:9443/stream?streams=$streams")
             .build()
