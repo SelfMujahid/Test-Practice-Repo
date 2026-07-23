@@ -43,23 +43,17 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
         holder.tvSymbol.text = item.symbol
         holder.tvPrice.text = "$${item.price}"
 
-        // Image Loading via Glide
         if (item.logoUrl.isNotEmpty()) {
             Glide.with(holder.itemView.context)
                 .load(item.logoUrl)
                 .into(holder.imgLogo)
         }
 
-        // 1h %
         bindPercentage(holder.tvChange1h, item.change1h)
-
-        // 24h %
         bindPercentage(holder.tvChange24h, item.change24h)
-
-        // 7d %
         bindPercentage(holder.tvChange7d, item.change7d)
 
-        // Flash 0.5s Animation Logic
+        // Flash Color Animation (Speed Reduced by 40% -> 850ms)
         if (item.isFlashed) {
             val animRes = if (item.priceState == PriceState.UP) R.anim.flash_up else R.anim.flash_down
             val flashColor = if (item.priceState == PriceState.UP) "#00E676" else "#FF1744"
@@ -70,7 +64,7 @@ class CryptoAdapter(private var cryptoList: List<CryptoItem>) :
             mainHandler.postDelayed({
                 holder.tvPrice.setTextColor(Color.parseColor("#111111"))
                 item.isFlashed = false
-            }, 500)
+            }, 850) // Reduced speed
         } else {
             holder.tvPrice.setTextColor(Color.parseColor("#111111"))
         }
