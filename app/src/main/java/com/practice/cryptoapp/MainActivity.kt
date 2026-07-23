@@ -1,6 +1,5 @@
 package com.practice.cryptoapp
 
-import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -24,13 +23,13 @@ class MainActivity : AppCompatActivity() {
     private var webSocket: WebSocket? = null
     private val activityScope = CoroutineScope(Dispatchers.Main + Job())
 
-    private val allMasterList = mutableListOf<CryptoItem>() // Up to 1,000 coins
-    private val filteredList = mutableListOf<CryptoItem>()  // Active filter
-    private val displayedList = mutableListOf<CryptoItem>() // Page view
+    private val allMasterList = mutableListOf<CryptoItem>() 
+    private val filteredList = mutableListOf<CryptoItem>()  
+    private val displayedList = mutableListOf<CryptoItem>() 
     private val symbolMap = HashMap<String, CryptoItem>()
 
-    private var currentFilter = "ALL" // ALL, GAINERS, LOSERS
-    private var currentLimit = 20
+    private var currentPage = 1
+    private var currentFilter = "ALL" 
     private var isDarkMode = false
 
     private lateinit var btnPrevious: Button
@@ -42,12 +41,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1. Menu Trigger (3 Lines & Logo)
-        val menuBtn = findViewById<ImageView>(R.id.imgMenuIcon)
-        val logoBtn = findViewById<ImageView>(R.id.imgAppLogo)
-        val openMenuListener = View.OnClickListener { showSettingsMenu(it) }
-        menuBtn.setOnClickListener(openMenuListener)
-        logoBtn.setOnClickListener(openMenuListener)
+        // 1. Logo with 3 lines Click Listener
+        val logoContainer = findViewById<FrameLayout>(R.id.logoMenuContainer)
+        logoContainer.setOnClickListener { showSettingsMenu(it) }
 
         // 2. Views Setup
         btnPrevious = findViewById(R.id.btnPrevious)
@@ -60,12 +56,11 @@ class MainActivity : AppCompatActivity() {
         adapter = CryptoAdapter(emptyList())
         recyclerView.adapter = adapter
 
-        // 3. Setup Listeners
         setupPaginationListeners()
         setupSearchAndFilters()
 
-        // 4. Fetch 1,000 Coins
-        fetchTop1000Coins()
+        // 3. Fetch All Binance Coins
+        fetchAllBinanceCoins()
     }
 
     private fun showSettingsMenu(view: View) {
@@ -96,28 +91,33 @@ class MainActivity : AppCompatActivity() {
         val btnGainers = findViewById<Button>(R.id.btnGainers)
         val btnLosers = findViewById<Button>(R.id.btnLosers)
 
-        // Instant Real-time Search
         etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                currentPage = 1
                 applyFiltersAndSearch()
             }
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        btnSearchIcon.setOnClickListener { applyFiltersAndSearch() }
+        btnSearchIcon.setOnClickListener { 
+            currentPage = 1
+            applyFiltersAndSearch() 
+        }
 
-        // Filter Buttons
         btnAll.setOnClickListener {
             currentFilter = "ALL"
+            currentPage = 1
             applyFiltersAndSearch()
         }
         btnGainers.setOnClickListener {
             currentFilter = "GAINERS"
+            currentPage = 1
             applyFiltersAndSearch()
         }
         btnLosers.setOnClickListener {
             currentFilter = "LOSERS"
+            currentPage = 1
             applyFiltersAndSearch()
         }
     }
@@ -125,7 +125,6 @@ class MainActivity : AppCompatActivity() {
     private fun applyFiltersAndSearch() {
         val query = etSearch.text.toString().trim().lowercase()
 
-        // 1. Filter by Search Query
         var temp = if (query.isEmpty()) {
             allMasterList.toMutableList()
         } else {
@@ -134,7 +133,6 @@ class MainActivity : AppCompatActivity() {
             }.toMutableList()
         }
 
-        // 2. Filter by Category (Gainers / Losers)
         when (currentFilter) {
             "GAINERS" -> temp.sortByDescending { it.change24h }
             "LOSERS" -> temp.sortBy { it.change24h }
@@ -144,77 +142,95 @@ class MainActivity : AppCompatActivity() {
         filteredList.clear()
         filteredList.addAll(temp)
 
-        // Reset limit to 20 on search/filter change
-        currentLimit = 20
-        updateListDisplay()
+        renderCurrentPage()
     }
 
     private fun setupPaginationListeners() {
         btnNext.setOnClickListener {
-            if (currentLimit < filteredList.size) {
-                currentLimit += 50
-                if (currentLimit > filteredList.size) currentLimit = filteredList.size
-                updateListDisplay()
+            val totalPages = getTotalPages()
+            if (currentPage < totalPages) {
+                currentPage++
+                renderCurrentPage()
             }
         }
 
         btnPrevious.setOnClickListener {
-            if (currentLimit > 20) {
-                currentLimit -= 50
-                if (currentLimit < 20) currentLimit = 20
-                updateListDisplay()
+            if (currentPage > 1) {
+                currentPage--
+                renderCurrentPage()
             }
         }
     }
 
-    private fun updateListDisplay() {
+    private fun getTotalPages(): Int {
+        if (filteredList.size <= 20) return 1
+        val remainingItems = filteredList.size - 20
+        return 1 + kotlin.math.ceil(remainingItems.toDouble() / 50.0).toInt()
+    }
+
+    private fun renderCurrentPage() {
         displayedList.clear()
-        displayedList.addAll(filteredList.take(currentLimit))
+
+        val startIndex: Int
+        val endIndex: Int
+
+        if (currentPage == 1) {
+            startIndex = 0
+            endIndex = minOf(20, filteredList.size)
+        } else {
+            startIndex = 20 + (currentPage - 2) * 50
+            endIndex = minOf(startIndex + 50, filteredList.size)
+        }
+
+        if (startIndex < filteredList.size) {
+            displayedList.addAll(filteredList.subList(startIndex, endIndex))
+        }
+
         adapter.updateData(displayedList.toList())
 
-        tvPageCount.text = "Showing ${displayedList.size} of ${filteredList.size}"
-        btnPrevious.isEnabled = currentLimit > 20
-        btnNext.isEnabled = currentLimit < filteredList.size
+        val totalPages = getTotalPages()
+        tvPageCount.text = "Page $currentPage of $totalPages (${displayedList.size} coins)"
+        btnPrevious.isEnabled = currentPage > 1
+        btnNext.isEnabled = currentPage < totalPages
 
         connectBinanceWebSocket()
     }
 
-    private fun fetchTop1000Coins() {
+    private fun fetchAllBinanceCoins() {
         activityScope.launch(Dispatchers.IO) {
             try {
+                // Fetch All Tickers via Binance API
+                val url = "https://api.binance.com/api/v3/ticker/24hr"
+                val jsonString = URL(url).readText()
+                val jsonArray = JSONArray(jsonString)
+
                 val tempList = mutableListOf<CryptoItem>()
+                var rankCounter = 1
 
-                // Fetch 4 pages * 250 = 1,000 Coins
-                for (page in 1..4) {
-                    val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false&price_change_percentage=1h,24h,7d"
-                    val jsonString = URL(url).readText()
-                    val jsonArray = JSONArray(jsonString)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val symbol = obj.getString("symbol")
 
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val symbol = obj.getString("symbol").uppercase()
-                        val name = obj.getString("name")
-                        val rank = obj.optInt("market_cap_rank", tempList.size + 1)
-                        val price = obj.optDouble("current_price", 0.0)
-                        val logo = obj.optString("image", "")
-                        val c1h = obj.optDouble("price_change_percentage_1h_in_currency", 0.0)
-                        val c24h = obj.optDouble("price_change_percentage_24h_in_currency", 0.0)
-                        val c7d = obj.optDouble("price_change_percentage_7d_in_currency", 0.0)
+                    // Filter only USDT pairs for clean pricing
+                    if (symbol.endsWith("USDT")) {
+                        val baseSymbol = symbol.replace("USDT", "")
+                        val price = obj.optDouble("lastPrice", 0.0)
+                        val c24h = obj.optDouble("priceChangePercent", 0.0)
 
                         val item = CryptoItem(
-                            rank = rank,
-                            name = name,
-                            symbol = symbol,
+                            rank = rankCounter++,
+                            name = baseSymbol,
+                            symbol = baseSymbol,
                             price = "%.2f".format(price),
-                            logoUrl = logo,
-                            change1h = c1h,
+                            logoUrl = "https://assets.coincap.io/assets/icons/${baseSymbol.lowercase()}@2x.png",
+                            change1h = 0.0,
                             change24h = c24h,
-                            change7d = c7d,
+                            change7d = 0.0,
                             rawPrice = price,
                             priceState = PriceState.NEUTRAL
                         )
                         tempList.add(item)
-                        symbolMap["${symbol}USDT"] = item
+                        symbolMap[symbol] = item
                     }
                 }
 
@@ -232,11 +248,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connectBinanceWebSocket() {
-        webSocket?.close(1000, "Switching List")
+        webSocket?.close(1000, "Switching Page")
 
         if (displayedList.isEmpty()) return
 
-        val streams = displayedList.take(50).joinToString("/") { "${it.symbol.lowercase()}usdt@ticker" }
+        val streams = displayedList.joinToString("/") { "${it.symbol.lowercase()}usdt@ticker" }
         val request = Request.Builder()
             .url("wss://stream.binance.com:9443/stream?streams=$streams")
             .build()
