@@ -5,15 +5,15 @@
         android:icon="@android:drawable/ic_menu_compass"
         android:title="Home" />
     <item
-        android:id="@+id/nav_spot"
+        android:id="@+id/nav_chart"
         android:icon="@android:drawable/ic_menu_sort_by_size"
-        android:title="Spot" />
+        android:title="Chart" />
     <item
-        android:id="@+id/nav_futures"
+        android:id="@+id/nav_analysis"
         android:icon="@android:drawable/ic_menu_slideshow"
-        android:title="Futures" />
+        android:title="Analysis" />
     <item
-        android:id="@+id/nav_bot"
+        android:id="@+id/nav_news"
         android:icon="@android:drawable/ic_menu_manage"
-        android:title="Bot" />
+        android:title="News" />
 </menu>
