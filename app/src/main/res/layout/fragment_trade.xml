@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121418"
+    android:orientation="vertical">
+
+    <!-- 1. TOP TABS: Spot | Futures | Bot -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="#1E222D"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <TextView
+            android:id="@+id/tabSpot"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Spot"
+            android:textColor="#848E9C"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tabFutures"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:text="Futures"
+            android:textColor="#00D4FF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tabBot"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:text="Bot"
+            android:textColor="#848E9C"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- 2. BITGET STYLE TRADING INTERFACE -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:baselineAligned="false"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <!-- LEFT SIDE: TRADING CONTROLS (Buy/Sell, Order Type, Leverage) -->
+        <ScrollView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.2"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingEnd="8dp">
+
+                <!-- Pair Selection & Margin Type -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvTradePair"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BTCUSDT Perp"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="#2B313A"
+                        android:paddingHorizontal="6dp"
+                        android:paddingVertical="2dp"
+                        android:text="Cross 20x"
+                        android:textColor="#00D4FF"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Buy (Long) / Sell (Short) Selector -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnModeLong"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:backgroundTint="#0ECB81"
+                        android:text="Open Long"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btnModeShort"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#F6465D"
+                        android:text="Open Short"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Order Type (Limit / Market) -->
+                <Spinner
+                    android:id="@+id/spOrderType"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="10dp"
+                    android:background="#2B313A" />
+
+                <!-- Price Input -->
+                <EditText
+                    android:id="@+id/etPrice"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="10dp"
+                    android:background="#1E222D"
+                    android:hint="Price (USDT)"
+                    android:inputType="numberDecimal"
+                    android:paddingHorizontal="10dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#5E6673"
+                    android:textSize="13sp" />
+
+                <!-- Amount / Size Input -->
+                <EditText
+                    android:id="@+id/etAmount"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="8dp"
+                    android:background="#1E222D"
+                    android:hint="Amount (BTC)"
+                    android:inputType="numberDecimal"
+                    android:paddingHorizontal="10dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#5E6673"
+                    android:textSize="13sp" />
+
+                <!-- Leverage Slider Placeholder -->
+                <SeekBar
+                    android:id="@+id/sbLeverage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:max="100"
+                    android:progress="20" />
+
+                <!-- TP / SL Checkbox -->
+                <CheckBox
+                    android:id="@+id/cbTpSl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TP / SL"
+                    android:textColor="#848E9C"
+                    android:textSize="12sp" />
+
+                <!-- Execute Order Button -->
+                <Button
+                    android:id="@+id/btnExecuteTrade"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="12dp"
+                    android:backgroundTint="#0ECB81"
+                    android:text="Buy / Long"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- RIGHT SIDE: BITGET STYLE ORDER BOOK -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Price"
+                    android:textColor="#848E9C"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:text="Size"
+                    android:textColor="#848E9C"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- Asks (Red / Sell Orders) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="96,520.0  0.42"
+                android:textColor="#F6465D"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="96,515.5  1.10"
+                android:textColor="#F6465D"
+                android:textSize="11sp" />
+
+            <!-- Current Price Marker -->
+            <TextView
+                android:id="@+id/tvMarkPrice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginVertical="6dp"
+                android:text="96,500.00 ↗"
+                android:textColor="#0ECB81"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- Bids (Green / Buy Orders) -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="96,495.0  0.85"
+                android:textColor="#0ECB81"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="96,490.0  2.50"
+                android:textColor="#0ECB81"
+                android:textSize="11sp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>
