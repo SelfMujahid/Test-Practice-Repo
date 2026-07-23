@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/app-auto"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/mainLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#F5F5F5">
 
-    <!-- 1. STICKY TOP HEADER WITH LOGO + 3 LINES -->
+    <!-- 1. STICKY TOP HEADER WITH LOGO CONTAINING 3 LINES -->
     <LinearLayout
         android:id="@+id/topHeader"
         android:layout_width="match_parent"
@@ -18,29 +18,34 @@
         android:orientation="horizontal"
         android:paddingHorizontal="16dp">
 
-        <ImageView
-            android:id="@+id/imgMenuIcon"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+        <!-- Logo Container with 3 lines Inside -->
+        <FrameLayout
+            android:id="@+id/logoMenuContainer"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
-            android:focusable="true"
-            android:src="@android:drawable/ic_menu_sort_by_size" />
+            android:focusable="true">
 
-        <ImageView
-            android:id="@+id/imgAppLogo"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_marginStart="10dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true"
-            android:src="@drawable/app_logo" />
+            <ImageView
+                android:id="@+id/imgAppLogo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/app_logo" />
+
+            <!-- 3 Choti Lines inside Logo -->
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_gravity="center"
+                android:src="@android:drawable/ic_menu_sort_by_size"
+                app:tint="#FFFFFF" />
+        </FrameLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="10dp"
             android:text="TEST"
             android:textColor="#111111"
             android:textSize="16sp"
@@ -60,7 +65,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@id/bottomNavigation"
-        android:layout_below="@id/topHeader">
+        android:layout_below="@id/topHeader"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -68,7 +74,7 @@
             android:orientation="vertical"
             android:padding="12dp">
 
-            <!-- DEMO BALANCE CARD (Without Fake Chips) -->
+            <!-- DEMO BALANCE CARD -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -101,7 +107,6 @@
                         android:textSize="26sp"
                         android:textStyle="bold" />
 
-                    <!-- Real Default PnL (Grayed out) -->
                     <TextView
                         android:id="@+id/tvRealPnL"
                         android:layout_width="wrap_content"
@@ -159,7 +164,7 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
-            <!-- SEARCH BOX WITH SEARCH ICON -->
+            <!-- SEARCH BOX -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="42dp"
@@ -190,7 +195,7 @@
                     android:src="@android:drawable/ic_menu_search" />
             </LinearLayout>
 
-            <!-- FILTER BUTTONS (ALL, GAINERS, LOSERS) -->
+            <!-- FILTER BUTTONS -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -323,7 +328,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginHorizontal="16dp"
-                    android:text="Showing 20"
+                    android:text="Page 1"
                     android:textColor="#777777"
                     android:textSize="12sp"
                     android:textStyle="bold" />
@@ -343,14 +348,14 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <!-- 3. STICKY BOTTOM NAVIGATION BAR -->
+    <!-- 3. VISIBLE BOTTOM NAVIGATION BAR -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNavigation"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
+        android:layout_height="58dp"
         android:layout_alignParentBottom="true"
         android:background="#FFFFFF"
-        app:elevation="8dp"
+        app:elevation="12dp"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />
 
