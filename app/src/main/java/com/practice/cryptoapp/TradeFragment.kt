@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONObject
+import kotlin.math.min
 
 class TradeFragment : Fragment() {
 
@@ -178,13 +179,15 @@ class TradeFragment : Fragment() {
 
                 val sb = StringBuilder()
                 sb.append("--- ASKS (SELL) ---\n")
-                for (i in 0 minOf 4 until asks.length()) {
+                val maxAsks = min(5, asks.length())
+                for (i in 0 until maxAsks) {
                     val a = asks.getJSONArray(i)
                     sb.append("%.2f  %.4f\n".format(a.getString(0).toDouble(), a.getString(1).toDouble()))
                 }
                 sb.append("\nPRICE: %.2f\n\n".format(currentPrice))
                 sb.append("--- BIDS (BUY) ---\n")
-                for (i in 0 minOf 4 until bids.length()) {
+                val maxBids = min(5, bids.length())
+                for (i in 0 until maxBids) {
                     val b = bids.getJSONArray(i)
                     sb.append("%.2f  %.4f\n".format(b.getString(0).toDouble(), b.getString(1).toDouble()))
                 }
