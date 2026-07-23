@@ -12,25 +12,25 @@ import androidx.fragment.app.Fragment
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONObject
-import kotlin.math.min
 
 class TradeFragment : Fragment() {
 
     private val client = OkHttpClient()
     private var webSocket: WebSocket? = null
     private var currentSymbol = "btcusdt"
+    private var currentPrice = 65000.0
 
-    private lateinit var tv24hHighLow: TextView
-    private lateinit var tvFundingRate: TextView
-    private lateinit var tvOrderBookContent: TextView
-    private lateinit var tvEstLiquidation: TextView
+    private lateinit var tvLastPrice: TextView
+    private lateinit var tvPriceChange: TextView
+    private lateinit var tvTickerDetails: TextView
+    private lateinit var tvBalanceStats: TextView
+    private lateinit var tvOrderSummary: TextView
+    private lateinit var tvPositionContent: TextView
+
     private lateinit var etPrice: EditText
-    private lateinit var etAmount: EditText
-    private lateinit var sbLeverageLine: SeekBar
+    private lateinit var etQuantity: EditText
+    private lateinit var sbLeverage: SeekBar
     private lateinit var btnLeverage: Button
-
-    private var isOrderBookMode = true
-    private var currentPrice = 0.0
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -38,71 +38,74 @@ class TradeFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_trade, container, false)
 
-        tv24hHighLow = view.findViewById(R.id.tv24hHighLow)
-        tvFundingRate = view.findViewById(R.id.tvFundingRate)
-        tvOrderBookContent = view.findViewById(R.id.tvOrderBookContent)
-        tvEstLiquidation = view.findViewById(R.id.tvEstLiquidation)
-        etPrice = view.findViewById(R.id.etPrice)
-        etAmount = view.findViewById(R.id.etAmount)
-        sbLeverageLine = view.findViewById(R.id.sbLeverageLine)
-        btnLeverage = view.findViewById(R.id.btnLeverage)
-
+        initViews(view)
         setupSpinners(view)
         setupListeners(view)
         startFundingTimer()
-        connectBinanceTradeWebSocket()
+        connectBinanceWebSocket()
 
         return view
     }
 
+    private fun initViews(view: View) {
+        tvLastPrice = view.findViewById(R.id.tvLastPrice)
+        tvPriceChange = view.findViewById(R.id.tvPriceChange)
+        tvTickerDetails = view.findViewById(R.id.tvTickerDetails)
+        tvBalanceStats = view.findViewById(R.id.tvBalanceStats)
+        tvOrderSummary = view.findViewById(R.id.tvOrderSummary)
+        tvPositionContent = view.findViewById(R.id.tvPositionContent)
+        etPrice = view.findViewById(R.id.etPrice)
+        etQuantity = view.findViewById(R.id.etQuantity)
+        sbLeverage = view.findViewById(R.id.sbLeverage)
+        btnLeverage = view.findViewById(R.id.btnLeverage)
+    }
+
     private fun setupSpinners(view: View) {
         val spCoinSelect = view.findViewById<Spinner>(R.id.spCoinSelect)
-        val spMarginType = view.findViewById<Spinner>(R.id.spMarginType)
+        val spMarginMode = view.findViewById<Spinner>(R.id.spMarginMode)
+        val spPositionMode = view.findViewById<Spinner>(R.id.spPositionMode)
         val spOrderType = view.findViewById<Spinner>(R.id.spOrderType)
-        val spTradeAmountFilter = view.findViewById<Spinner>(R.id.spTradeAmountFilter)
+        val spBottomTabs = view.findViewById<Spinner>(R.id.spBottomTabs)
 
-        val coins = arrayOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT")
-        val marginTypes = arrayOf("Cross", "Isolated")
-        val orderTypes = arrayOf("Limit Order", "Market Order")
-        val amountFilters = arrayOf("All Amounts", "> $1,000", "> $10,000")
-
-        spCoinSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, coins)
-        spMarginType.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, marginTypes)
-        spOrderType.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, orderTypes)
-        spTradeAmountFilter.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, amountFilters)
+        spCoinSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("BTCUSDT", "ETHUSDT", "SOLUSDT"))
+        spMarginMode.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cross Margin", "Isolated Margin"))
+        spPositionMode.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("One-Way Mode", "Hedge Mode"))
+        spOrderType.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Limit Order", "Market Order", "Stop Limit", "Trailing Stop"))
+        spBottomTabs.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Open Positions", "Open Orders", "Order History", "Trade History"))
 
         spCoinSelect.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
-                currentSymbol = coins[position].lowercase()
-                connectBinanceTradeWebSocket()
+                val coins = arrayOf("btcusdt", "ethusdt", "solusdt")
+                currentSymbol = coins[position]
+                connectBinanceWebSocket()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
 
     private fun setupListeners(view: View) {
-        val tabOrderBook = view.findViewById<TextView>(R.id.tabOrderBook)
-        val tabRealTrades = view.findViewById<TextView>(R.id.tabRealTrades)
+        val btnPriceMinus = view.findViewById<Button>(R.id.btnPriceMinus)
+        val btnPricePlus = view.findViewById<Button>(R.id.btnPricePlus)
+        val btnLastPrice = view.findViewById<Button>(R.id.btnLastPrice)
+        val btn25 = view.findViewById<Button>(R.id.btn25)
+        val btn50 = view.findViewById<Button>(R.id.btn50)
+        val btn75 = view.findViewById<Button>(R.id.btn75)
+        val btn100 = view.findViewById<Button>(R.id.btn100)
 
-        tabOrderBook.setOnClickListener {
-            isOrderBookMode = true
-            tabOrderBook.setTextColor(resources.getColor(android.R.color.holo_orange_light))
-            tabRealTrades.setTextColor(resources.getColor(android.R.color.darker_gray))
-            connectBinanceTradeWebSocket()
-        }
+        btnPriceMinus.setOnClickListener { adjustPrice(-10.0) }
+        btnPricePlus.setOnClickListener { adjustPrice(10.0) }
+        btnLastPrice.setOnClickListener { etPrice.setText("%.2f".format(currentPrice)) }
 
-        tabRealTrades.setOnClickListener {
-            isOrderBookMode = false
-            tabRealTrades.setTextColor(resources.getColor(android.R.color.holo_orange_light))
-            tabOrderBook.setTextColor(resources.getColor(android.R.color.darker_gray))
-            connectBinanceTradeWebSocket()
-        }
+        btn25.setOnClickListener { etQuantity.setText("2500") }
+        btn50.setOnClickListener { etQuantity.setText("5000") }
+        btn75.setOnClickListener { etQuantity.setText("7500") }
+        btn100.setOnClickListener { etQuantity.setText("10000") }
 
-        sbLeverageLine.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        sbLeverage.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val lev = if (progress < 1) 1 else progress
+                val lev = progress.coerceAtLeast(1)
                 btnLeverage.text = "${lev}x"
-                calculateLiquidation()
+                updateCalculations()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -110,102 +113,69 @@ class TradeFragment : Fragment() {
 
         val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                calculateLiquidation()
-            }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { updateCalculations() }
             override fun afterTextChanged(s: Editable?) {}
         }
         etPrice.addTextChangedListener(watcher)
-        etAmount.addTextChangedListener(watcher)
+        etQuantity.addTextChangedListener(watcher)
     }
 
-    private fun calculateLiquidation() {
-        val price = etPrice.text.toString().toDoubleOrNull() ?: currentPrice
-        val leverage = sbLeverageLine.progress.coerceAtLeast(1)
+    private fun adjustPrice(delta: Double) {
+        val p = etPrice.text.toString().toDoubleOrNull() ?: currentPrice
+        etPrice.setText("%.2f".format((p + delta).coerceAtLeast(0.0)))
+    }
 
-        if (price > 0) {
-            val liqPrice = price * (1.0 - (1.0 / leverage))
-            tvEstLiquidation.text = "Est. Liq Price: $%.2f USDT".format(liqPrice)
-        }
+    private fun updateCalculations() {
+        val price = etPrice.text.toString().toDoubleOrNull() ?: currentPrice
+        val qty = etQuantity.text.toString().toDoubleOrNull() ?: 0.0
+        val lev = sbLeverage.progress.coerceAtLeast(1)
+
+        val reqMargin = if (lev > 0) qty / lev else 0.0
+        val estFee = qty * 0.0005
+        val liqPrice = if (lev > 0) price * (1.0 - (1.0 / lev)) else 0.0
+
+        tvOrderSummary.text = "Req Margin: %.2f USDT | Est Fee: %.2f USDT\nEst Liq Price: %.2f USDT | Est Bankruptcy: %.2f\nRisk/Reward: 1:2.5 | Max Loss: %.2f USDT"
+            .format(reqMargin, estFee, liqPrice, liqPrice * 0.98, reqMargin)
     }
 
     private fun startFundingTimer() {
         object : CountDownTimer(28800000, 1000) {
-            override fun onTick(millisUntilFinished: Long) {
-                val hours = (millisUntilFinished / 3600000) % 24
-                val minutes = (millisUntilFinished / 60000) % 60
-                val seconds = (millisUntilFinished / 1000) % 60
-                tvFundingRate.text = "Funding: 0.0100%% in %02d:%02d:%02d".format(hours, minutes, seconds)
-            }
+            override fun onTick(millisUntilFinished: Long) {}
             override fun onFinish() {}
         }.start()
     }
 
-    private fun connectBinanceTradeWebSocket() {
+    private fun connectBinanceWebSocket() {
         webSocket?.close(1000, "Switching stream")
-
-        val streamName = if (isOrderBookMode) "${currentSymbol}@depth10@100ms" else "${currentSymbol}@trade"
-        val tickerStream = "${currentSymbol}@ticker"
-
         val request = Request.Builder()
-            .url("wss://stream.binance.com:9443/stream?streams=$streamName/$tickerStream")
+            .url("wss://stream.binance.com:9443/ws/${currentSymbol}@ticker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 activity?.runOnUiThread {
-                    parseTradeStream(text)
+                    try {
+                        val json = JSONObject(text)
+                        if (json.has("c")) {
+                            currentPrice = json.getDouble("c")
+                            val change = json.getDouble("P")
+                            val high = json.getDouble("h")
+                            val low = json.getDouble("l")
+                            val vol = json.getDouble("q")
+
+                            tvLastPrice.text = "%.2f".format(currentPrice)
+                            tvPriceChange.text = "%+.2f%%".format(change)
+                            tvPriceChange.setTextColor(resources.getColor(if (change >= 0) android.R.color.holo_green_light else android.R.color.holo_red_light))
+
+                            tvTickerDetails.text = "Mark: %.2f | Index: %.2f\n24h H: %.2f | L: %.2f | Vol: %.2fM\nFunding: 0.0100%% in 07:12:45 | OI: 450M"
+                                .format(currentPrice, currentPrice + 2, high, low, vol / 1000000)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
             }
         })
-    }
-
-    private fun parseTradeStream(jsonText: String) {
-        try {
-            val root = JSONObject(jsonText)
-            if (!root.has("data")) return
-            val data = root.getJSONObject("data")
-
-            if (data.has("h") && data.has("l")) {
-                val high = data.getDouble("h")
-                val low = data.getDouble("l")
-                currentPrice = data.getDouble("c")
-                tv24hHighLow.text = "24h H: $high | L: $low"
-            }
-
-            if (isOrderBookMode && data.has("bids")) {
-                val bids = data.getJSONArray("bids")
-                val asks = data.getJSONArray("asks")
-
-                val sb = StringBuilder()
-                sb.append("--- ASKS (SELL) ---\n")
-                val maxAsks = min(5, asks.length())
-                for (i in 0 until maxAsks) {
-                    val a = asks.getJSONArray(i)
-                    sb.append("%.2f  %.4f\n".format(a.getString(0).toDouble(), a.getString(1).toDouble()))
-                }
-                sb.append("\nPRICE: %.2f\n\n".format(currentPrice))
-                sb.append("--- BIDS (BUY) ---\n")
-                val maxBids = min(5, bids.length())
-                for (i in 0 until maxBids) {
-                    val b = bids.getJSONArray(i)
-                    sb.append("%.2f  %.4f\n".format(b.getString(0).toDouble(), b.getString(1).toDouble()))
-                }
-                tvOrderBookContent.text = sb.toString()
-            } else if (!isOrderBookMode && data.has("p")) {
-                val p = data.getDouble("p")
-                val q = data.getDouble("q")
-                val isBuyerMaker = data.getBoolean("m")
-                val side = if (isBuyerMaker) "SELL" else "BUY"
-
-                val currentText = tvOrderBookContent.text.toString()
-                val line = "[$side] $p ($q)\n"
-                tvOrderBookContent.text = (line + currentText).take(300)
-            }
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 
     override fun onDestroyView() {
