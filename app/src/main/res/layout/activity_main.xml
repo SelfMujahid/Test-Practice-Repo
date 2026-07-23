@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:app="http://schemas.android.com/app-auto"
+    android:id="@+id/mainLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#F5F5F5">
 
-    <!-- 1. STICKY TOP HEADER -->
+    <!-- 1. STICKY TOP HEADER WITH LOGO + 3 LINES -->
     <LinearLayout
         android:id="@+id/topHeader"
         android:layout_width="match_parent"
@@ -18,9 +19,19 @@
         android:paddingHorizontal="16dp">
 
         <ImageView
+            android:id="@+id/imgMenuIcon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:src="@android:drawable/ic_menu_sort_by_size" />
+
+        <ImageView
             android:id="@+id/imgAppLogo"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="10dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true"
@@ -29,7 +40,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:text="TEST"
             android:textColor="#111111"
             android:textSize="16sp"
@@ -57,7 +68,7 @@
             android:orientation="vertical"
             android:padding="12dp">
 
-            <!-- SECTION A: DEMO BALANCE CARD -->
+            <!-- DEMO BALANCE CARD (Without Fake Chips) -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -75,7 +86,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:letterSpacing="0.1"
-                        android:text="DEMO PORTFOLIO"
+                        android:text="DEMO PORTFOLIO BALANCE"
                         android:textColor="#777777"
                         android:textSize="10sp"
                         android:textStyle="bold" />
@@ -87,26 +98,22 @@
                         android:layout_marginTop="4dp"
                         android:text="$10,000.00"
                         android:textColor="#111111"
-                        android:textSize="28sp"
+                        android:textSize="26sp"
                         android:textStyle="bold" />
 
-                    <!-- Timeframe PnL Chips (Without 8h) -->
-                    <HorizontalScrollView
-                        android:layout_width="match_parent"
+                    <!-- Real Default PnL (Grayed out) -->
+                    <TextView
+                        android:id="@+id/tvRealPnL"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:scrollbars="none">
-
-                        <LinearLayout
-                            android:id="@+id/pnlChipsContainer"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal" />
-                    </HorizontalScrollView>
+                        android:layout_marginTop="4dp"
+                        android:text="PnL: $0.00 (0.00%)"
+                        android:textColor="#888888"
+                        android:textSize="12sp" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
-            <!-- SECTION B: MARKET OVERVIEW STATS -->
+            <!-- MARKET OVERVIEW STATS -->
             <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -140,28 +147,6 @@
                         android:textSize="11sp" />
 
                     <TextView
-                        android:id="@+id/tvEthDom"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:background="#FFFFFF"
-                        android:padding="8dp"
-                        android:text="ETH Dom: 16.5%"
-                        android:textColor="#111111"
-                        android:textSize="11sp" />
-
-                    <TextView
-                        android:id="@+id/tvAltDom"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:background="#FFFFFF"
-                        android:padding="8dp"
-                        android:text="ALT Dom: 29.3%"
-                        android:textColor="#111111"
-                        android:textSize="11sp" />
-
-                    <TextView
                         android:id="@+id/tv24hVol"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -174,19 +159,38 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
-            <!-- SECTION C: SEARCH & FILTERS -->
-            <EditText
-                android:id="@+id/etSearch"
+            <!-- SEARCH BOX WITH SEARCH ICON -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="42dp"
                 android:layout_marginTop="12dp"
                 android:background="#FFFFFF"
-                android:drawableStart="@android:drawable/ic_menu_search"
-                android:drawablePadding="8dp"
-                android:hint="Search coin name or symbol..."
-                android:paddingHorizontal="12dp"
-                android:textSize="13sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp">
 
+                <EditText
+                    android:id="@+id/etSearch"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="Search coin name or symbol..."
+                    android:imeOptions="actionSearch"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+
+                <ImageView
+                    android:id="@+id/btnSearchIcon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:src="@android:drawable/ic_menu_search" />
+            </LinearLayout>
+
+            <!-- FILTER BUTTONS (ALL, GAINERS, LOSERS) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -195,29 +199,32 @@
 
                 <Button
                     android:id="@+id/btnAll"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="36dp"
+                    android:layout_weight="1"
                     android:text="All"
                     android:textSize="11sp" />
 
                 <Button
                     android:id="@+id/btnGainers"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="36dp"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
                     android:text="🚀 Gainers"
                     android:textSize="11sp" />
 
                 <Button
                     android:id="@+id/btnLosers"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="36dp"
                     android:layout_marginStart="6dp"
+                    android:layout_weight="1"
                     android:text="📉 Losers"
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- TABLE HEADER & LIST -->
+            <!-- TABLE LIST -->
             <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -282,7 +289,6 @@
                             android:textStyle="bold" />
                     </LinearLayout>
 
-                    <!-- RECYCLERVIEW FOR LIST -->
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/cryptoRecyclerView"
                         android:layout_width="wrap_content"
@@ -291,7 +297,7 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
-            <!-- PAGINATION BUTTONS (Prev / Next) -->
+            <!-- PAGINATION BUTTONS -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -341,10 +347,11 @@
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNavigation"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="60dp"
         android:layout_alignParentBottom="true"
         android:background="#FFFFFF"
         app:elevation="8dp"
+        app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />
 
 </RelativeLayout>
