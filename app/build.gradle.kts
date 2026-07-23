@@ -43,7 +43,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     
-    // Jetpack Compose Libraries
+    // Jetpack Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -58,6 +58,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
-    // WebSocket Network Streaming (Binance Live Price)
+    // WebSocket (Binance Live Price)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
