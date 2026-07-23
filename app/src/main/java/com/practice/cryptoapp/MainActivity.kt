@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONArray
@@ -36,21 +37,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnNext: Button
     private lateinit var tvPageCount: TextView
     private lateinit var etSearch: EditText
+    private lateinit var topHeader: View
+    private lateinit var bottomNavigation: BottomNavigationView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1. Logo with 3 lines Click Listener
-        val logoContainer = findViewById<FrameLayout>(R.id.logoMenuContainer)
-        logoContainer.setOnClickListener { showSettingsMenu(it) }
-
-        // 2. Views Setup
+        // 1. Views Initialization
+        topHeader = findViewById(R.id.topHeader)
+        bottomNavigation = findViewById(R.id.bottomNavigation)
         btnPrevious = findViewById(R.id.btnPrevious)
         btnNext = findViewById(R.id.btnNext)
         tvPageCount = findViewById(R.id.tvPageCount)
         etSearch = findViewById(R.id.etSearch)
 
+        // Logo with 3 lines Click Listener
+        val logoContainer = findViewById<FrameLayout>(R.id.logoMenuContainer)
+        logoContainer.setOnClickListener { showSettingsMenu(it) }
+
+        // RecyclerView Setup
         recyclerView = findViewById(R.id.cryptoRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
         adapter = CryptoAdapter(emptyList())
@@ -58,9 +64,52 @@ class MainActivity : AppCompatActivity() {
 
         setupPaginationListeners()
         setupSearchAndFilters()
+        setupBottomNavigation()
 
-        // 3. Fetch All Binance Coins
+        // 2. Fetch All Binance Coins
         fetchAllBinanceCoins()
+    }
+
+    private fun setupBottomNavigation() {
+        bottomNavigation.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_home -> {
+                    topHeader.visibility = View.VISIBLE
+                    // Remove trade fragment if it was added
+                    val fragment = supportFragmentManager.findFragmentById(R.id.mainLayout)
+                    if (fragment != null) {
+                        supportFragmentManager.beginTransaction().remove(fragment).commit()
+                    }
+                    true
+                }
+                R.id.nav_chart -> {
+                    topHeader.visibility = View.VISIBLE
+                    Toast.makeText(this, "Chart Selected", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                R.id.nav_trade -> {
+                    // Hide Top Logo Header for Trade Screen
+                    topHeader.visibility = View.GONE
+
+                    // Load Trade Fragment (Bitget style orderbook & form)
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.mainLayout, TradeFragment())
+                        .commit()
+                    true
+                }
+                R.id.nav_analysis -> {
+                    topHeader.visibility = View.VISIBLE
+                    Toast.makeText(this, "Analysis Selected", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                R.id.nav_news -> {
+                    topHeader.visibility = View.VISIBLE
+                    Toast.makeText(this, "News Selected", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     private fun showSettingsMenu(view: View) {
@@ -125,7 +174,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyFiltersAndSearch() {
         val query = etSearch.text.toString().trim().lowercase()
 
-        var temp = if (query.isEmpty()) {
+        val temp = if (query.isEmpty()) {
             allMasterList.toMutableList()
         } else {
             allMasterList.filter {
