@@ -1,213 +1,164 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0B0E11"
-    android:orientation="vertical">
+    android:fillViewport="true">
 
-    <!-- 1. TOP SPOT / FUTURES / BOT TABS -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:background="#181A20"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="16dp">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="10dp">
 
-        <TextView
-            android:id="@+id/tabSpot"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Spot"
-            android:textColor="#848E9C"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tabFutures"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="20dp"
-            android:text="Futures"
-            android:textColor="#F0B90B"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tabBot"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="20dp"
-            android:text="Bot"
-            android:textColor="#848E9C"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- 2. COIN SELECTOR HEADER + LOGO + 24H HIGH/LOW + FUNDING COUNTDOWN -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:background="#121418"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="12dp">
-
-        <ImageView
-            android:id="@+id/imgCoinLogo"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@android:drawable/ic_menu_compass" />
-
-        <Spinner
-            android:id="@+id/spCoinSelect"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="6dp"
-            android:background="@null" />
-
+        <!-- 1. HEADER TICKER & STATS BANNER -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/tv24hHighLow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="24h H: 0.00 | L: 0.00"
-                android:textColor="#848E9C"
-                android:textSize="10sp" />
-
-            <TextView
-                android:id="@+id/tvFundingRate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Funding / Countdown: 0.0100% in 07:12:45"
-                android:textColor="#F0B90B"
-                android:textSize="10sp" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- 3. DEMO BALANCE BANNER -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="28dp"
-        android:background="#1E222D"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="12dp">
-
-        <TextView
-            android:id="@+id/tvDemoBalanceTrade"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Demo Balance: $10,000.00 USDT"
-            android:textColor="#EAEAEA"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- 4. MAIN TRADING INTERFACE (SPLIT VIEW: FORM LEFT, ORDER BOOK RIGHT) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:baselineAligned="false"
-        android:orientation="horizontal"
-        android:padding="8dp">
-
-        <!-- LEFT SIDE: MARGIN TYPE, LEVERAGE, ORDER FORM & LIQUIDATION -->
-        <ScrollView
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1.1"
-            android:scrollbars="none">
+            android:background="#181A20"
+            android:orientation="vertical"
+            android:padding="10dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingEnd="6dp">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <!-- Cross / Isolated Selector & Leverage Button -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="32dp"
-                    android:orientation="horizontal">
-
-                    <Spinner
-                        android:id="@+id/spMarginType"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:background="#2B313A" />
-
-                    <Button
-                        android:id="@+id/btnLeverage"
-                        style="?android:attr/borderlessButtonStyle"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="4dp"
-                        android:layout_weight="1"
-                        android:background="#2B313A"
-                        android:text="20x"
-                        android:textColor="#F0B90B"
-                        android:textSize="11sp" />
-                </LinearLayout>
-
-                <!-- Leverage Slider Line -->
-                <SeekBar
-                    android:id="@+id/sbLeverageLine"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:max="125"
-                    android:progress="20" />
-
-                <!-- Open Long / Open Short Mode Buttons -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="34dp"
-                    android:layout_marginTop="8dp"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnModeLong"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_weight="1"
-                        android:backgroundTint="#0ECB81"
-                        android:text="Open Long"
-                        android:textSize="10sp" />
-
-                    <Button
-                        android:id="@+id/btnModeShort"
-                        android:layout_width="0dp"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="4dp"
-                        android:layout_weight="1"
-                        android:backgroundTint="#F6465D"
-                        android:text="Open Short"
-                        android:textSize="10sp" />
-                </LinearLayout>
-
-                <!-- Order Type (Limit / Market) -->
                 <Spinner
-                    android:id="@+id/spOrderType"
-                    android:layout_width="match_parent"
-                    android:layout_height="34dp"
-                    android:layout_marginTop="8dp"
+                    android:id="@+id/spCoinSelect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
                     android:background="#2B313A" />
 
-                <!-- Price Input -->
+                <TextView
+                    android:id="@+id/tvLastPrice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="65,420.50"
+                    android:textColor="#0ECB81"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvPriceChange"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="+2.45%"
+                    android:textColor="#0ECB81"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTickerDetails"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:lineSpacingExtra="2dp"
+                android:text="Mark: 65,418.0 | Index: 65,422.1\n24h H: 66,200 | L: 64,100 | Vol: 1.2B\nFunding: 0.0100% in 07:12:45 | OI: 450M"
+                android:textColor="#848E9C"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- 2. MARGIN, MODE, LEVERAGE & WALLET BALANCE -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#181A20"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:orientation="horizontal">
+
+                <Spinner
+                    android:id="@+id/spMarginMode"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="#2B313A" />
+
+                <Spinner
+                    android:id="@+id/spPositionMode"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A" />
+
+                <Button
+                    android:id="@+id/btnLeverage"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="20x"
+                    android:textColor="#F0B90B"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <SeekBar
+                android:id="@+id/sbLeverage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:max="125"
+                android:progress="20" />
+
+            <TextView
+                android:id="@+id/tvBalanceStats"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Avail: 10,000.00 USDT | Margin Ratio: 0.00% | Max Open: 200,000 USDT"
+                android:textColor="#EAEAEA"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- 3. ORDER FORM (TYPE, PRICE, QUANTITY, QUICK BUTTONS) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#181A20"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <Spinner
+                android:id="@+id/spOrderType"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:background="#2B313A" />
+
+            <!-- Price Controls -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnPriceMinus"
+                    android:layout_width="38dp"
+                    android:layout_height="match_parent"
+                    android:backgroundTint="#2B313A"
+                    android:padding="0dp"
+                    android:text="-"
+                    android:textColor="#FFFFFF" />
+
                 <EditText
                     android:id="@+id/etPrice"
-                    android:layout_width="match_parent"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="6dp"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginHorizontal="4dp"
+                    android:layout_weight="1"
                     android:background="#1E222D"
                     android:hint="Price (USDT)"
                     android:inputType="numberDecimal"
@@ -216,165 +167,289 @@
                     android:textColorHint="#5E6673"
                     android:textSize="12sp" />
 
-                <!-- Amount Input -->
+                <Button
+                    android:id="@+id/btnPricePlus"
+                    android:layout_width="38dp"
+                    android:layout_height="match_parent"
+                    android:backgroundTint="#2B313A"
+                    android:padding="0dp"
+                    android:text="+"
+                    android:textColor="#FFFFFF" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="28dp"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnBestBid"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="Bid"
+                    android:textColor="#848E9C"
+                    android:textSize="9sp" />
+
+                <Button
+                    android:id="@+id/btnBestAsk"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="Ask"
+                    android:textColor="#848E9C"
+                    android:textSize="9sp" />
+
+                <Button
+                    android:id="@+id/btnLastPrice"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="Last"
+                    android:textColor="#848E9C"
+                    android:textSize="9sp" />
+            </LinearLayout>
+
+            <!-- Quantity Controls -->
+            <EditText
+                android:id="@+id/etQuantity"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:background="#1E222D"
+                android:hint="Quantity (USDT)"
+                android:inputType="numberDecimal"
+                android:paddingHorizontal="8dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5E6673"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btn25"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="25%"
+                    android:textColor="#EAEAEA"
+                    android:textSize="10sp" />
+
+                <Button
+                    android:id="@+id/btn50"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="50%"
+                    android:textColor="#EAEAEA"
+                    android:textSize="10sp" />
+
+                <Button
+                    android:id="@+id/btn75"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="75%"
+                    android:textColor="#EAEAEA"
+                    android:textSize="10sp" />
+
+                <Button
+                    android:id="@+id/btn100"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="100%"
+                    android:textColor="#EAEAEA"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- Advanced Order Toggles -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <CheckBox
+                    android:id="@+id/cbReduceOnly"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reduce Only"
+                    android:textColor="#848E9C"
+                    android:textSize="10sp" />
+
+                <CheckBox
+                    android:id="@+id/cbPostOnly"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="Post Only"
+                    android:textColor="#848E9C"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <!-- TP / SL Section -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
                 <EditText
-                    android:id="@+id/etAmount"
-                    android:layout_width="match_parent"
+                    android:id="@+id/etTakeProfit"
+                    android:layout_width="0dp"
                     android:layout_height="36dp"
-                    android:layout_marginTop="6dp"
+                    android:layout_weight="1"
                     android:background="#1E222D"
-                    android:hint="Amount USDT"
+                    android:hint="Take Profit"
                     android:inputType="numberDecimal"
                     android:paddingHorizontal="8dp"
                     android:textColor="#FFFFFF"
                     android:textColorHint="#5E6673"
-                    android:textSize="12sp" />
+                    android:textSize="11sp" />
 
-                <!-- Liquidation Price Calculation Display -->
-                <TextView
-                    android:id="@+id/tvEstLiquidation"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Est. Liq Price: -- USDT"
-                    android:textColor="#F6465D"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
+                <EditText
+                    android:id="@+id/etStopLoss"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:background="#1E222D"
+                    android:hint="Stop Loss"
+                    android:inputType="numberDecimal"
+                    android:paddingHorizontal="8dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#5E6673"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
 
-                <!-- Execute Trade Button -->
+        <!-- 4. ORDER SUMMARY PANEL -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#181A20"
+            android:orientation="vertical"
+            android:padding="10dp">
+
+            <TextView
+                android:id="@+id/tvOrderSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="3dp"
+                android:text="Req Margin: 0.00 USDT | Est Fee: 0.00 USDT\nEst Liq Price: -- | Est Bankruptcy: --\nRisk/Reward: -- | Max Loss: --"
+                android:textColor="#848E9C"
+                android:textSize="10sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
                 <Button
-                    android:id="@+id/btnExecuteTrade"
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"
-                    android:layout_marginTop="10dp"
+                    android:id="@+id/btnBuyLong"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
                     android:backgroundTint="#0ECB81"
                     android:text="Buy / Long"
                     android:textColor="#FFFFFF"
-                    android:textSize="12sp"
                     android:textStyle="bold" />
 
+                <Button
+                    android:id="@+id/btnSellShort"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#F6465D"
+                    android:text="Sell / Short"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
             </LinearLayout>
-        </ScrollView>
+        </LinearLayout>
 
-        <!-- RIGHT SIDE: ORDER BOOK OR REAL-TIME TRADES SELECTOR -->
+        <!-- 5. CURRENT POSITION PANEL & BOTTOM TABS -->
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.9"
-            android:orientation="vertical">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#181A20"
+            android:orientation="vertical"
+            android:padding="10dp">
 
-            <!-- Switcher: Order Book vs Real Trades -->
+            <Spinner
+                android:id="@+id/spBottomTabs"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:background="#2B313A" />
+
+            <TextView
+                android:id="@+id/tvPositionContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:lineSpacingExtra="3dp"
+                android:text="No Active Positions"
+                android:textColor="#848E9C"
+                android:textSize="11sp" />
+
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="26dp"
+                android:layout_height="32dp"
+                android:layout_marginTop="10dp"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/tabOrderBook"
+                <Button
+                    android:id="@+id/btnCloseMarket"
+                    style="?android:attr/borderlessButtonStyle"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_weight="1"
-                    android:gravity="center"
-                    android:text="Order Book"
+                    android:background="#2B313A"
+                    android:text="Close Market"
+                    android:textColor="#F6465D"
+                    android:textSize="10sp" />
+
+                <Button
+                    android:id="@+id/btnReversePosition"
+                    style="?android:attr/borderlessButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:background="#2B313A"
+                    android:text="Reverse"
                     android:textColor="#F0B90B"
-                    android:textSize="10sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tabRealTrades"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:gravity="center"
-                    android:text="Trades"
-                    android:textColor="#848E9C"
-                    android:textSize="10sp"
-                    android:textStyle="bold" />
+                    android:textSize="10sp" />
             </LinearLayout>
-
-            <!-- Trade Amount Filter Selector -->
-            <Spinner
-                android:id="@+id/spTradeAmountFilter"
-                android:layout_width="match_parent"
-                android:layout_height="24dp"
-                android:layout_marginTop="4dp"
-                android:background="#1E222D" />
-
-            <!-- Orderbook / Trades Text Display Container -->
-            <TextView
-                android:id="@+id/tvOrderBookContent"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginTop="4dp"
-                android:fontFamily="monospace"
-                android:lineSpacingExtra="2dp"
-                android:text="Loading WSS Stream..."
-                android:textColor="#EAEAEA"
-                android:textSize="10sp" />
         </LinearLayout>
 
     </LinearLayout>
-
-    <!-- 5. BOTTOM SECTION: POSITIONS / ORDERS / HISTORY TABS -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="140dp"
-        android:background="#181A20"
-        android:orientation="vertical">
-
-        <!-- Tabs Header -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:background="#121418"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="12dp">
-
-            <TextView
-                android:id="@+id/tabActivePositions"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Positions (0)"
-                android:textColor="#F0B90B"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tabLimitOrders"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="Open Orders (0)"
-                android:textColor="#848E9C"
-                android:textSize="11sp" />
-
-            <TextView
-                android:id="@+id/tabHistory"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="History"
-                android:textColor="#848E9C"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <!-- Content Placeholder -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:padding="8dp">
-
-            <TextView
-                android:id="@+id/tvPositionsEmptyState"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="No Active Positions"
-                android:textColor="#5E6673"
-                android:textSize="12sp" />
-        </FrameLayout>
-
-    </LinearLayout>
-
-</LinearLayout>
+</ScrollView>
