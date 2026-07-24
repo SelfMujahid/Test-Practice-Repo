@@ -1,8 +1,8 @@
-name: "Gradle Build Error Explainer"
+name: Gradle Build Error Explainer
 
 on:
   workflow_run:
-    workflows: ["Android CI"]  # Aapke main CI workflow ka naam
+    workflows: ["Android CI"]
     types:
       - completed
 
@@ -11,44 +11,60 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
     steps:
-      - name: Download Build Logs
+      - name: Fetch Workflow Failure Logs
         uses: actions/github-script@v7
         with:
           script: |
-            let logs = await github.rest.actions.downloadWorkflowRunLogs({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: context.payload.workflow_run.id,
+            const runId = context.payload.workflow_run.id;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Fetch jobs for the failed workflow run
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner: owner,
+              repo: repo,
+              run_id: runId,
             });
-            let fs = require('fs');
-            fs.writeFileSync('logs.zip', Buffer.from(logs.data));
 
-      - name: Extract Log File
-        run: |
-          unzip -q logs.zip -d log_files
-          grep -rn "e: " log_files/ || true > error_summary.txt
-          grep -rn "FAILURE: Build failed" -A 20 log_files/ >> error_summary.txt || true
+            const failedJob = jobs.data.jobs.find(j => j.conclusion === 'failure');
+            if (!failedJob) return;
 
-      - name: Generate AI Error Report
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let errorDetails = "Unknown Gradle Error";
-            if (fs.existsSync('error_summary.txt')) {
-              errorDetails = fs.readFileSync('error_summary.txt', 'utf8').slice(0, 2000);
+            // Fetch job logs
+            const logResponse = await github.rest.actions.downloadJobLogsForWorkflowRun({
+              owner: owner,
+              repo: repo,
+              job_id: failedJob.id,
+            });
+
+            const logs = logResponse.data;
+            const logLines = logs.split('\n');
+
+            // Extract compilation errors and exceptions
+            const errorLines = logLines.filter(line => 
+              line.includes('e: ') || 
+              line.includes('Unresolved reference') || 
+              line.includes('BUILD FAILED') || 
+              line.includes('Execution failed for task') ||
+              line.includes('OutOfMemoryError')
+            );
+
+            const summaryLog = errorLines.length > 0 
+              ? errorLines.slice(-15).join('\n') 
+              : "Logs mein koi direct compile error text nahi mila. Check karein gradle.properties ya dependencies mismatch hai.";
+
+            // Format Summary in Roman Urdu
+            let romanUrduExplanation = "### 🚨 Build Fail Hone Ki Wajah (Roman Urdu Explanation):\n\n";
+            
+            if (summaryLog.includes("Unresolved reference")) {
+              romanUrduExplanation += "👉 **Masla:** Code mein kisi class, library, ya resource variable ka reference missing hai (Import issue ya Resource Name galat hai).\n";
+            } else if (summaryLog.includes("OutOfMemoryError") || summaryLog.includes("daemon")) {
+              romanUrduExplanation += "👉 **Masla:** Memory (RAM) khatam ho gayi hai. `gradle.properties` mein jvmargs badhane ki zaroorat hai.\n";
+            } else if (summaryLog.includes("Execution failed for task")) {
+              romanUrduExplanation += "👉 **Masla:** Android Gradle Build Task execute nahi ho saka. Code compile error ya XML file syntax check karein.\n";
+            } else {
+              romanUrduExplanation += "👉 **Masla:** Gradle build fail ho gayi hai. Neeche diye gaye main errors ko check karein.\n";
             }
-            
-            const summary = `
-            ## 🚨 Gradle Build Failure Analysis
-            
-            **Detected Errors in Logs:**
-            \`\`\`text
-            ${errorDetails || "Check full workflow logs for details."}
-            \`\`\`
-            
-            ---
-            💡 *Tip: Check if any imports, missing XML/Manifest references, or Gradle plugin versions are mismatched.*
-            `;
-            
-            await core.summary.addRaw(summary).write();
+
+            romanUrduExplanation += "\n```text\n" + summaryLog + "\n```";
+
+            core.summary.addRaw(romanUrduExplanation).write();
