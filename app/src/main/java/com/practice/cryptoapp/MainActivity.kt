@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,18 +23,34 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+// Data Models for Binance
+data class BinanceTicker(
+    val symbol: String,
+    val lastPrice: String,
+    val priceChangePercent: String,
+    val quoteVolume: String
+)
 
 data class CryptoCoin(
     val rank: Int,
-    val name: String,
     val symbol: String,
     val price: Double,
-    val change1h: Double,
-    val change4h: Double,
     val change24h: Double,
-    val change7d: Double,
+    val volume: Double,
     val logoUrl: String
+)
+
+data class TimeframeProfit(
+    val timeframe: String,
+    val percentChange: Double
 )
 
 class MainActivity : ComponentActivity() {
@@ -112,19 +129,58 @@ fun HomeScreen(onMenuClick: () -> Unit) {
     var filterType by remember { mutableStateOf("ALL") }
     var visibleCount by remember { mutableIntStateOf(20) }
     var demoBalance by remember { mutableDoubleStateOf(10000.0) }
+    
+    var allCoins by remember { mutableStateOf<List<CryptoCoin>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    val allCoins = remember {
-        listOf(
-            CryptoCoin(1, "Bitcoin", "BTC", 64230.50, 0.4, 1.2, 3.5, 8.2, "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"),
-            CryptoCoin(2, "Ethereum", "ETH", 3450.20, -0.2, 0.8, -1.5, 4.1, "https://assets.coingecko.com/coins/images/279/large/ethereum.png"),
-            CryptoCoin(3, "Binance Coin", "BNB", 580.10, 0.1, -0.5, 5.4, 2.3, "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png"),
-            CryptoCoin(4, "Solana", "SOL", 145.80, 1.2, 3.1, -4.2, 12.5, "https://assets.coingecko.com/coins/images/4128/large/solana.png")
-        )
+    // Live Fetch Binance Market Data
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url("https://api.binance.com/api/v3/ticker/24hr")
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        val type = object : TypeToken<List<BinanceTicker>>() {}.type
+                        val rawList: List<BinanceTicker> = Gson().fromJson(body, type)
+
+                        // Filter USDT pairs & sort by volume
+                        val usdtPairs = rawList.filter { it.symbol.endsWith("USDT") }
+                            .sortedByDescending { it.quoteVolume.toDoubleOrNull() ?: 0.0 }
+
+                        val mappedCoins = usdtPairs.mapIndexed { index, ticker ->
+                            val cleanSymbol = ticker.symbol.replace("USDT", "")
+                            CryptoCoin(
+                                rank = index + 1,
+                                symbol = cleanSymbol,
+                                price = ticker.lastPrice.toDoubleOrNull() ?: 0.0,
+                                change24h = ticker.priceChangePercent.toDoubleOrNull() ?: 0.0,
+                                volume = ticker.quoteVolume.toDoubleOrNull() ?: 0.0,
+                                logoUrl = "https://assets.coingecko.com/coins/images/1/large/${cleanSymbol.lowercase()}.png"
+                            )
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            allCoins = mappedCoins
+                            isLoading = false
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) { isLoading = false }
+            }
+        }
     }
 
-    val filteredCoins = remember(searchQuery, filterType, visibleCount) {
+    // Filter Logic
+    val filteredCoins = remember(searchQuery, filterType, visibleCount, allCoins) {
         var list = allCoins.filter { 
-            it.name.contains(searchQuery, ignoreCase = true) || it.symbol.contains(searchQuery, ignoreCase = true) 
+            it.symbol.contains(searchQuery, ignoreCase = true)
         }
         list = when (filterType) {
             "GAINER" -> list.sortedByDescending { it.change24h }
@@ -134,12 +190,14 @@ fun HomeScreen(onMenuClick: () -> Unit) {
         list.take(visibleCount)
     }
 
+    val timeframes = listOf("1h", "4h", "8h", "12h", "24h", "1d", "2d", "3d", "4d", "5d", "6d", "7d", "15d", "30d")
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(12.dp)
     ) {
-        // Header
+        // --- 1. Header ---
         item {
             Row(
                 modifier = Modifier
@@ -147,18 +205,34 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                     .padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onMenuClick) {
-                    Icon(Icons.Default.Menu, contentDescription = "Menu")
+                Box(modifier = Modifier.clickable { onMenuClick() }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CurrencyBitcoin,
+                            contentDescription = "App Logo",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Crypto Tracker", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.weight(1f))
+                Text("Binance Live Stream", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        // Demo Balance Section
+        // --- 2. Demo Balance Section (Default 0.0% Gray P/L) ---
         item {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(
@@ -177,16 +251,23 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                             Text("Reset")
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("P/L Stats:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("P/L Statistics:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     
-                    val timeframes = listOf("1h", "4h", "8h", "12h", "24h", "1d", "2d", "7d", "15d", "30d")
                     LazyRow(modifier = Modifier.padding(top = 4.dp)) {
-                        items(timeframes) { time ->
-                            Card(modifier = Modifier.padding(end = 6.dp)) {
+                        items(timeframes) { tf ->
+                            Card(
+                                modifier = Modifier.padding(end = 6.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
                                 Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(time, fontSize = 10.sp, color = Color.Gray)
-                                    Text("+2.5%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF008000))
+                                    Text(tf, fontSize = 10.sp, color = Color.Gray)
+                                    Text(
+                                        text = "0.0%",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Gray
+                                    )
                                 }
                             }
                         }
@@ -195,13 +276,37 @@ fun HomeScreen(onMenuClick: () -> Unit) {
             }
         }
 
-        // Search & Filters
+        // --- 3. Global Stats ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Global Market Overview", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatItem("Market Cap", "$2.41T", "+1.8%")
+                        StatItem("24h Vol", "$84.2B", "-0.5%")
+                        StatItem("BTC Dom", "54.2%", "+0.3%")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatItem("ETH Dom", "16.8%", "-0.1%")
+                        StatItem("ALT Dom", "29.0%", "+0.2%")
+                        StatItem("Global 24h", "+1.2%", "+1.2%")
+                    }
+                }
+            }
+        }
+
+        // --- 4. Search & Filters ---
         item {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                placeholder = { Text("Search Crypto...") },
+                placeholder = { Text("Search Binance Coins...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true
             )
@@ -209,35 +314,87 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(selected = filterType == "ALL", onClick = { filterType = "ALL" }, label = { Text("All") })
+                FilterChip(selected = filterType == "ALL", onClick = { filterType = "ALL" }, label = { Text("All Coins") })
                 FilterChip(selected = filterType == "GAINER", onClick = { filterType = "GAINER" }, label = { Text("Top Gainers") })
                 FilterChip(selected = filterType == "LOSER", onClick = { filterType = "LOSER" }, label = { Text("Top Losers") })
             }
         }
 
-        // Crypto List
-        items(filteredCoins) { coin ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("#${coin.rank}", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.width(28.dp))
-                AsyncImage(
-                    model = coin.logoUrl,
-                    contentDescription = coin.name,
-                    modifier = Modifier.size(32.dp).clip(CircleShape)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(coin.symbol, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(coin.name, fontSize = 11.sp, color = Color.Gray)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("$${coin.price}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text("${if (coin.change24h >= 0) "+" else ""}${coin.change24h}%", fontSize = 11.sp, color = if (coin.change24h >= 0) Color(0xFF008000) else Color.Red)
+        // Loader or Crypto List
+        if (isLoading) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
             }
-            HorizontalDivider(thickness = 0.5.dp)
+        } else {
+            itemsIndexed(filteredCoins) { _, coin ->
+                CryptoRow(coin)
+                HorizontalDivider(thickness = 0.5.dp)
+            }
+
+            // --- 5. Pagination Buttons ---
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    OutlinedButton(
+                        onClick = { if (visibleCount > 20) visibleCount -= 50 },
+                        enabled = visibleCount > 20
+                    ) {
+                        Text("Previous 50")
+                    }
+                    Button(
+                        onClick = { visibleCount += 50 }
+                    ) {
+                        Text("Next 50")
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+fun CryptoRow(coin: CryptoCoin) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("#${coin.rank}", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(32.dp))
+        AsyncImage(
+            model = coin.logoUrl,
+            contentDescription = coin.symbol,
+            modifier = Modifier.size(30.dp).clip(CircleShape)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1.2f)) {
+            Text("${coin.symbol}/USDT", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("Vol: $${String.format("%.0f", coin.volume / 1000000)}M", fontSize = 10.sp, color = Color.Gray)
+        }
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1.5f)) {
+            Text("$${coin.price}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            
+            val isPositive = coin.change24h >= 0
+            Text(
+                text = "${if (isPositive) "+" else ""}${String.format("%.2f", coin.change24h)}%",
+                fontSize = 11.sp,
+                color = if (isPositive) Color(0xFF008000) else Color.Red
+            )
+        }
+    }
+}
+
+@Composable
+fun StatItem(title: String, value: String, change: String) {
+    Column {
+        Text(title, fontSize = 10.sp, color = Color.Gray)
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(
+            change,
+            fontSize = 10.sp,
+            color = if (change.startsWith("+")) Color(0xFF008000) else Color.Red
+        )
     }
 }
