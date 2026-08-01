@@ -2,6 +2,7 @@ package com.practice.cryptoapp
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,9 +33,17 @@ class TradeViewModel : ViewModel() {
 
     private val client = OkHttpClient()
     private var webSocket: WebSocket? = null
+    private var isConnecting = false
 
     init {
         connectBinanceWebSocket(_uiState.value.symbol)
+    }
+
+    // Page par wapas aane par stream ko refresh/reconnect karne ke liye
+    fun ensureActiveConnection() {
+        if (webSocket == null && !isConnecting) {
+            connectBinanceWebSocket(_uiState.value.symbol)
+        }
     }
 
     fun onSymbolChanged(newSymbol: String) {
@@ -71,13 +80,19 @@ class TradeViewModel : ViewModel() {
     }
 
     private fun connectBinanceWebSocket(symbol: String) {
+        isConnecting = true
         webSocket?.close(1000, "Switching symbol")
+        
         val streamSymbol = symbol.lowercase()
         val request = Request.Builder()
             .url("wss://stream.binance.com:9443/ws/${streamSymbol}@ticker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                isConnecting = false
+            }
+
             override fun onMessage(webSocket: WebSocket, text: String) {
                 viewModelScope.launch {
                     try {
@@ -100,11 +115,27 @@ class TradeViewModel : ViewModel() {
                     }
                 }
             }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                isConnecting = false
+                this@TradeViewModel.webSocket = null
+                // Disconnect hone par 3 second baad auto-reconnect
+                viewModelScope.launch {
+                    delay(3000)
+                    connectBinanceWebSocket(_uiState.value.symbol)
+                }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                isConnecting = false
+                this@TradeViewModel.webSocket = null
+            }
         })
     }
 
     override fun onCleared() {
         super.onCleared()
         webSocket?.close(1000, "ViewModel Cleared")
+        webSocket = null
     }
 }
