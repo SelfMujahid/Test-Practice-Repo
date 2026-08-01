@@ -23,6 +23,11 @@ import com.practice.cryptoapp.TradeViewModel
 fun TradeScreen(viewModel: TradeViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
 
+    // Screen par wapas aate hi connection ensure karein
+    LaunchedEffect(Unit) {
+        viewModel.ensureActiveConnection()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
