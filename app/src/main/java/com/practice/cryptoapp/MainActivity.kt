@@ -28,16 +28,9 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-
-// Data Models for Binance
-data class BinanceTicker(
-    val symbol: String,
-    val lastPrice: String,
-    val priceChangePercent: String,
-    val quoteVolume: String
-)
+import okhttp3.*
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class CryptoCoin(
     val rank: Int,
@@ -126,18 +119,65 @@ fun HomeScreen(onMenuClick: () -> Unit) {
     var visibleCount by remember { mutableIntStateOf(20) }
     var demoBalance by remember { mutableDoubleStateOf(10000.0) }
     
+    // Live Dynamic List State
     var allCoins by remember { mutableStateOf<List<CryptoCoin>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Live Fetch & Auto Re-Sync Jab Bhi Screen Par Wapas Aayein
-    LaunchedEffect(Unit) {
-        fetchBinanceMarketData { list ->
-            allCoins = list
-            isLoading = false
+    // Realtime Binance WebSocket Stream Connection
+    DisposableEffect(Unit) {
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url("wss://stream.binance.com:9443/ws/!ticker@arr")
+            .build()
+
+        val webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val jsonArray = JSONArray(text)
+                    val updatedCoins = mutableListOf<CryptoCoin>()
+
+                    var rankCounter = 1
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val symbol = obj.getString("s")
+
+                        if (symbol.endsWith("USDT")) {
+                            val cleanSymbol = symbol.replace("USDT", "")
+                            val price = obj.getString("c").toDoubleOrNull() ?: 0.0
+                            val change = obj.getString("P").toDoubleOrNull() ?: 0.0
+                            val volume = obj.getString("q").toDoubleOrNull() ?: 0.0
+
+                            updatedCoins.add(
+                                CryptoCoin(
+                                    rank = rankCounter++,
+                                    symbol = cleanSymbol,
+                                    price = price,
+                                    change24h = change,
+                                    volume = volume,
+                                    logoUrl = "https://assets.coingecko.com/coins/images/1/large/${cleanSymbol.lowercase()}.png"
+                                )
+                            )
+                        }
+                    }
+
+                    // Sort by highest 24h volume like Binance Market Page
+                    val sortedList = updatedCoins.sortedByDescending { it.volume }
+                        .mapIndexed { index, coin -> coin.copy(rank = index + 1) }
+
+                    allCoins = sortedList
+                    isLoading = false
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        })
+
+        onDispose {
+            webSocket.close(1000, "Screen Disposed")
         }
     }
 
-    // Dynamic Filter Logic
+    // Dynamic Filter & Pagination Logic
     val filteredCoins = remember(searchQuery, filterType, visibleCount, allCoins) {
         var list = allCoins.filter { 
             it.symbol.contains(searchQuery, ignoreCase = true)
@@ -184,11 +224,11 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Text("Binance Live Stream", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Binance Realtime Stream ⚡", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        // --- 2. Demo Balance Section (Default Neutral 0.0% Gray P/L) ---
+        // --- 2. Demo Balance Section ---
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -280,7 +320,7 @@ fun HomeScreen(onMenuClick: () -> Unit) {
             }
         }
 
-        // --- 5. Binance Crypto List ---
+        // --- 5. Binance Live Cryptos ---
         if (isLoading) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
@@ -356,46 +396,5 @@ fun StatItem(title: String, value: String, change: String) {
             fontSize = 10.sp,
             color = if (change.startsWith("+")) Color(0xFF008000) else Color.Red
         )
-    }
-}
-
-// Background Network Helper for Auto-Sync
-suspend fun fetchBinanceMarketData(onDataLoaded: (List<CryptoCoin>) -> Unit) {
-    withContext(Dispatchers.IO) {
-        try {
-            val client = OkHttpClient()
-            val request = Request.Builder()
-                .url("https://api.binance.com/api/v3/ticker/24hr")
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    val type = object : TypeToken<List<BinanceTicker>>() {}.type
-                    val rawList: List<BinanceTicker> = Gson().fromJson(body, type)
-
-                    val usdtPairs = rawList.filter { it.symbol.endsWith("USDT") }
-                        .sortedByDescending { it.quoteVolume.toDoubleOrNull() ?: 0.0 }
-
-                    val mappedCoins = usdtPairs.mapIndexed { index, ticker ->
-                        val cleanSymbol = ticker.symbol.replace("USDT", "")
-                        CryptoCoin(
-                            rank = index + 1,
-                            symbol = cleanSymbol,
-                            price = ticker.lastPrice.toDoubleOrNull() ?: 0.0,
-                            change24h = ticker.priceChangePercent.toDoubleOrNull() ?: 0.0,
-                            volume = ticker.quoteVolume.toDoubleOrNull() ?: 0.0,
-                            logoUrl = "https://assets.coingecko.com/coins/images/1/large/${cleanSymbol.lowercase()}.png"
-                        )
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        onDataLoaded(mappedCoins)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 }
