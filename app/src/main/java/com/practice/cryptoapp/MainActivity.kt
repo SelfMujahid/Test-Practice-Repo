@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +34,8 @@ data class CryptoCoin(
     val symbol: String,
     val price: Double,
     val change24h: Double,
-    val volume: Double
+    val volume: Double,
+    val logoUrl: String
 )
 
 class MainActivity : ComponentActivity() {
@@ -66,6 +69,12 @@ fun MainAppScreen() {
                     onClick = { scope.launch { drawerState.close() } },
                     icon = { Icon(Icons.Default.Person, contentDescription = null) }
                 )
+                NavigationDrawerItem(
+                    label = { Text("API Configuration") },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close() } },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                )
             }
         }
     ) {
@@ -89,6 +98,7 @@ fun MainAppScreen() {
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (selectedTab) {
                     0 -> HomeScreen(onMenuClick = { scope.launch { drawerState.open() } })
+                    2 -> com.practice.cryptoapp.ui.TradeScreen()
                     else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("Screen Under Construction", fontSize = 18.sp)
                     }
@@ -105,18 +115,20 @@ fun HomeScreen(onMenuClick: () -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var filterType by remember { mutableStateOf("ALL") }
     
-    // Pagination states: Shuru mein Top 10 show honge
-    var pageSize by remember { mutableIntStateOf(10) }
+    // Initial 10 items limit
+    var visibleLimit by remember { mutableIntStateOf(10) }
     var demoBalance by remember { mutableDoubleStateOf(10000.0) }
     
     var allCoins by remember { mutableStateOf<List<CryptoCoin>>(emptyList()) }
+    // Live price map for instant UI recomposition without freeze
+    val livePrices = remember { mutableStateMapOf<String, Pair<Double, Double>>() }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 1. Initial REST API Load & Live WSS Updates
+    // Fetch Base Coins Data + WebSocket Live Ticker Connection
     DisposableEffect(Unit) {
         val client = OkHttpClient()
 
-        // Fetch Initial Data via REST API
+        // 1. Initial REST API Load for instantly populating list
         scope.launch(Dispatchers.IO) {
             try {
                 val request = Request.Builder().url("https://api.binance.com/api/v3/ticker/24hr").build()
@@ -130,13 +142,15 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                             val obj = jsonArray.getJSONObject(i)
                             val symbol = obj.getString("symbol")
                             if (symbol.endsWith("USDT")) {
+                                val cleanSymbol = symbol.replace("USDT", "")
                                 tempList.add(
                                     CryptoCoin(
                                         rank = 0,
-                                        symbol = symbol.replace("USDT", ""),
+                                        symbol = cleanSymbol,
                                         price = obj.getDouble("lastPrice"),
                                         change24h = obj.getDouble("priceChangePercent"),
-                                        volume = obj.getDouble("quoteVolume")
+                                        volume = obj.getDouble("quoteVolume"),
+                                        logoUrl = "https://assets.coingecko.com/coins/images/1/large/${cleanSymbol.lowercase()}.png"
                                     )
                                 )
                             }
@@ -155,42 +169,25 @@ fun HomeScreen(onMenuClick: () -> Unit) {
             }
         }
 
-        // 2. WebSocket Realtime Stream Connection
+        // 2. Realtime WebSocket Ticker Sync (Directly updating livePrices Map for Zero Lag UI)
         val wsRequest = Request.Builder().url("wss://stream.binance.com:9443/ws/!ticker@arr").build()
         val webSocket = client.newWebSocket(wsRequest, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val jsonArray = JSONArray(text)
-                        val liveMap = mutableMapOf<String, Pair<Double, Double>>()
-
-                        for (i in 0 until jsonArray.length()) {
-                            val obj = jsonArray.getJSONObject(i)
-                            val symbol = obj.getString("s")
-                            if (symbol.endsWith("USDT")) {
-                                val cleanSymbol = symbol.replace("USDT", "")
-                                val price = obj.getString("c").toDoubleOrNull() ?: 0.0
-                                val change = obj.getString("P").toDoubleOrNull() ?: 0.0
-                                liveMap[cleanSymbol] = Pair(price, change)
-                            }
+                try {
+                    val jsonArray = JSONArray(text)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val symbol = obj.getString("s")
+                        if (symbol.endsWith("USDT")) {
+                            val cleanSymbol = symbol.replace("USDT", "")
+                            val price = obj.getString("c").toDoubleOrNull() ?: 0.0
+                            val change = obj.getString("P").toDoubleOrNull() ?: 0.0
+                            // State Map update triggers fast Compose redraw for price only
+                            livePrices[cleanSymbol] = Pair(price, change)
                         }
-
-                        if (allCoins.isNotEmpty()) {
-                            val updatedList = allCoins.map { coin ->
-                                val liveData = liveMap[coin.symbol]
-                                if (liveData != null) {
-                                    coin.copy(price = liveData.first, change24h = liveData.second)
-                                } else {
-                                    coin
-                                }
-                            }
-                            withContext(Dispatchers.Main) {
-                                allCoins = updatedList
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
         })
@@ -200,30 +197,32 @@ fun HomeScreen(onMenuClick: () -> Unit) {
         }
     }
 
-    // Search & Pagination Logic
-    val displayedCoins = remember(searchQuery, filterType, pageSize, allCoins) {
+    // Filter Logic
+    val filteredCoins = remember(searchQuery, filterType, visibleLimit, allCoins) {
         var list = allCoins.filter { 
             it.symbol.contains(searchQuery, ignoreCase = true)
         }
         list = when (filterType) {
-            "GAINER" -> list.sortedByDescending { it.change24h }
-            "LOSER" -> list.sortedBy { it.change24h }
+            "GAINER" -> list.sortedByDescending { livePrices[it.symbol]?.second ?: it.change24h }
+            "LOSER" -> list.sortedBy { livePrices[it.symbol]?.second ?: it.change24h }
             else -> list.sortedBy { it.rank }
         }
         
-        // Agar user search kar raha hai toh poori search list dikhayein, warna pagination (10 -> 50 -> 100) apply karein
         if (searchQuery.isNotBlank()) {
             list
         } else {
-            list.take(pageSize)
+            list.take(visibleLimit)
         }
     }
+
+    val timeframes = listOf("1h", "4h", "8h", "12h", "24h", "1d", "2d", "3d", "4d", "5d", "6d", "7d", "15d", "30d")
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(12.dp)
     ) {
+        // Top Header
         item {
             Row(
                 modifier = Modifier
@@ -232,47 +231,107 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(modifier = Modifier.clickable { onMenuClick() }) {
-                    Icon(
-                        imageVector = Icons.Default.CurrencyBitcoin,
-                        contentDescription = "App Logo",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CurrencyBitcoin,
+                            contentDescription = "App Logo",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(modifier = Modifier.size(12.dp, 2.dp).background(Color.Gray))
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Crypto Live Market ⚡", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.weight(1f))
+                Text("Binance Realtime Stream ⚡", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        // Demo Balance Card
+        // Demo Balance Section
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Demo Balance", fontSize = 12.sp, color = Color.Gray)
-                        Text("$${String.format("%.2f", demoBalance)}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Demo Balance", fontSize = 12.sp, color = Color.Gray)
+                            Text("$${String.format("%.2f", demoBalance)}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { demoBalance = 10000.0 },
+                            enabled = demoBalance <= 100.0
+                        ) {
+                            Text("Reset")
+                        }
                     }
-                    Button(onClick = { demoBalance = 10000.0 }) {
-                        Text("Reset")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("P/L Statistics:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    
+                    LazyRow(modifier = Modifier.padding(top = 4.dp)) {
+                        items(timeframes) { tf ->
+                            Card(
+                                modifier = Modifier.padding(end = 6.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(tf, fontSize = 10.sp, color = Color.Gray)
+                                    Text(
+                                        text = "0.0%",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Search & Filter Section
+        // Global Market Overview Section (Restored)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("Global Market Overview", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatItem("Market Cap", "$2.41T", "+1.8%")
+                        StatItem("24h Vol", "$84.2B", "-0.5%")
+                        StatItem("BTC Dom", "54.2%", "+0.3%")
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StatItem("ETH Dom", "16.8%", "-0.1%")
+                        StatItem("ALT Dom", "29.0%", "+0.2%")
+                        StatItem("Global 24h", "+1.2%", "+1.2%")
+                    }
+                }
+            }
+        }
+
+        // Search & Filters Section
         item {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                placeholder = { Text("Search specific coin (e.g. BTC, ETH)...") },
+                placeholder = { Text("Search Binance Coins (e.g. BTC, ETH)...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true
             )
@@ -280,13 +339,13 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterChip(selected = filterType == "ALL", onClick = { filterType = "ALL" }, label = { Text("All") })
+                FilterChip(selected = filterType == "ALL", onClick = { filterType = "ALL" }, label = { Text("All Coins") })
                 FilterChip(selected = filterType == "GAINER", onClick = { filterType = "GAINER" }, label = { Text("Top Gainers") })
                 FilterChip(selected = filterType == "LOSER", onClick = { filterType = "LOSER" }, label = { Text("Top Losers") })
             }
         }
 
-        // Coin List Items
+        // Live Cryptos Display
         if (isLoading) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -294,21 +353,27 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                 }
             }
         } else {
-            itemsIndexed(displayedCoins) { _, coin ->
-                CryptoRow(coin)
+            itemsIndexed(filteredCoins) { _, coin ->
+                // Fetch real-time price from WebSocket state map if available
+                val liveData = livePrices[coin.symbol]
+                val currentPrice = liveData?.first ?: coin.price
+                val currentChange = liveData?.second ?: coin.change24h
+
+                CryptoRow(coin, currentPrice, currentChange)
                 HorizontalDivider(thickness = 0.5.dp)
             }
 
-            // Pagination Buttons (Next / Previous) - Sirf tab dikhenge jab search na ho raha ho
+            // Pagination Buttons (Next 50 / Previous)
             if (searchQuery.isBlank()) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedButton(
-                            onClick = { if (pageSize > 10) pageSize -= 50 },
-                            enabled = pageSize > 10
+                            onClick = { if (visibleLimit > 10) visibleLimit -= 50 },
+                            enabled = visibleLimit > 10
                         ) {
                             Icon(Icons.Default.ArrowBack, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
@@ -316,14 +381,13 @@ fun HomeScreen(onMenuClick: () -> Unit) {
                         }
 
                         Text(
-                            text = "Showing $pageSize coins",
-                            modifier = Modifier.align(Alignment.CenterVertically),
+                            text = "Showing $visibleLimit coins",
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
 
                         Button(
-                            onClick = { pageSize += 50 }
+                            onClick = { visibleLimit += 50 }
                         ) {
                             Text("Next 50")
                             Spacer(modifier = Modifier.width(4.dp))
@@ -337,27 +401,20 @@ fun HomeScreen(onMenuClick: () -> Unit) {
 }
 
 @Composable
-fun CryptoRow(coin: CryptoCoin) {
+fun CryptoRow(coin: CryptoCoin, price: Double, change24h: Double) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("#${coin.rank}", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(32.dp))
         
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = coin.symbol.take(1),
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
+        // Logo image with fallback badge
+        AsyncImage(
+            model = coin.logoUrl,
+            contentDescription = coin.symbol,
+            modifier = Modifier.size(30.dp).clip(CircleShape),
+            error = androidx.compose.ui.res.painterResource(id = android.R.drawable.stat_notify_error)
+        )
 
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1.2f)) {
@@ -365,15 +422,28 @@ fun CryptoRow(coin: CryptoCoin) {
             Text("Vol: $${String.format("%.0f", coin.volume / 1000000)}M", fontSize = 10.sp, color = Color.Gray)
         }
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1.5f)) {
-            // Price live WSS se update hogi
-            Text("$${coin.price}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            // Live Prices dynamically updated from WebSocket
+            Text("$${price}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             
-            val isPositive = coin.change24h >= 0
+            val isPositive = change24h >= 0
             Text(
-                text = "${if (isPositive) "+" else ""}${String.format("%.2f", coin.change24h)}%",
+                text = "${if (isPositive) "+" else ""}${String.format("%.2f", change24h)}%",
                 fontSize = 11.sp,
                 color = if (isPositive) Color(0xFF008000) else Color.Red
             )
         }
+    }
+}
+
+@Composable
+fun StatItem(title: String, value: String, change: String) {
+    Column {
+        Text(title, fontSize = 10.sp, color = Color.Gray)
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(
+            change,
+            fontSize = 10.sp,
+            color = if (change.startsWith("+")) Color(0xFF008000) else Color.Red
+        )
     }
 }
