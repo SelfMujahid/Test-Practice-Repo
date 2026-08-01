@@ -50,6 +50,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
 
+    // ViewModel for Compose (Yeh missing tha!)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+
     // Icons Extended
     implementation("androidx.compose.material:material-icons-extended:1.6.8")
 
