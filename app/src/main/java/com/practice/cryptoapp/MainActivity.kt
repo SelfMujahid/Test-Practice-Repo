@@ -21,8 +21,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,27 +35,383 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
-class CryptoCoin(
+data class CryptoCoin(
     val symbol: String,
-    initialPrice: Double,
-    initialChange24h: Double,
-    initialVolume: Double
-) {
-    var price by mutableDoubleStateOf(initialPrice)
-    var change24h by mutableDoubleStateOf(initialChange24h)
-    var volume by mutableDoubleStateOf(initialVolume)
-    var rank by mutableIntStateOf(0)
+    val price: Double,
+    val change24h: Double,
+    val volume: Double,
+    val rank: Int
+)
+
+class BinanceWebSocketManager {
+
+    private val client = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .build()
+
+    private var webSocket: WebSocket? = null
+
+    private var stopped = false
+
+    private val coins = mutableMapOf<String, CryptoCoin>()
+
+    private val _coins =
+        MutableStateFlow<List<CryptoCoin>>(emptyList())
+
+    val coinsFlow: StateFlow<List<CryptoCoin>> =
+        _coins.asStateFlow()
+
+    private val _connection =
+        MutableStateFlow("Connecting...")
+
+    val connectionFlow: StateFlow<String> =
+        _connection.asStateFlow()
+
+    private val _error =
+        MutableStateFlow<String?>(null)
+
+    val errorFlow: StateFlow<String?> =
+        _error.asStateFlow()
+
+    fun start() {
+
+        stopped = false
+
+        connect()
+    }
+
+    private fun connect() {
+
+        if (stopped) {
+            return
+        }
+
+        _connection.value = "Connecting..."
+
+        val request = Request.Builder()
+            .url(
+                "wss://stream.binance.com:9443/ws/btcusdt@ticker"
+            )
+            .build()
+
+        webSocket =
+            client.newWebSocket(
+
+                request,
+
+                object : WebSocketListener() {
+
+                    override fun onOpen(
+                        webSocket: WebSocket,
+                        response: Response
+                    ) {
+
+                        _connection.value = "LIVE"
+
+                        _error.value = null
+
+                        /*
+                         * Pehle BTCUSDT se connection verify
+                         * ho raha hai.
+                         *
+                         * Baad mein isi connection par
+                         * Binance SUBSCRIBE method se
+                         * multiple coins subscribe karenge.
+                         */
+
+                        subscribeMoreSymbols(
+                            webSocket
+                        )
+                    }
+
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        text: String
+                    ) {
+
+                        try {
+
+                            val json =
+                                JSONObject(text)
+
+                            val symbol =
+                                json.optString("s")
+
+                            if (symbol.isBlank()) {
+                                return
+                            }
+
+                            val price =
+                                json.optString("c")
+                                    .toDoubleOrNull()
+                                    ?: return
+
+                            val change =
+                                json.optString("P")
+                                    .toDoubleOrNull()
+                                    ?: 0.0
+
+                            val volume =
+                                json.optString("q")
+                                    .toDoubleOrNull()
+                                    ?: 0.0
+
+                            synchronized(coins) {
+
+                                coins[symbol] =
+                                    CryptoCoin(
+
+                                        symbol =
+                                            symbol.removeSuffix(
+                                                "USDT"
+                                            ),
+
+                                        price =
+                                            price,
+
+                                        change24h =
+                                            change,
+
+                                        volume =
+                                            volume,
+
+                                        rank = 0
+                                    )
+
+                                updateRanks()
+                            }
+
+                        } catch (e: Exception) {
+
+                            _error.value =
+                                "Ticker parsing error: ${e.message}"
+                        }
+                    }
+
+                    override fun onClosing(
+                        webSocket: WebSocket,
+                        code: Int,
+                        reason: String
+                    ) {
+
+                        _connection.value =
+                            "Reconnecting..."
+
+                        webSocket.close(
+                            code,
+                            reason
+                        )
+                    }
+
+                    override fun onClosed(
+                        webSocket: WebSocket,
+                        code: Int,
+                        reason: String
+                    ) {
+
+                        if (!stopped) {
+
+                            reconnect()
+                        }
+                    }
+
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        t: Throwable,
+                        response: Response?
+                    ) {
+
+                        _connection.value =
+                            "Reconnecting..."
+
+                        _error.value =
+                            t.message
+                                ?: "WebSocket connection failed"
+
+                        reconnect()
+                    }
+                }
+            )
+    }
+
+    private fun subscribeMoreSymbols(
+        webSocket: WebSocket
+    ) {
+
+        /*
+         * TEST SET
+         *
+         * Connection establish hone ke baad
+         * multiple Binance markets subscribe
+         * kiye ja rahe hain.
+         *
+         * REST API ki zaroorat nahi.
+         */
+
+        val symbols = listOf(
+            "btcusdt",
+            "ethusdt",
+            "bnbusdt",
+            "solusdt",
+            "xrpusdt",
+            "dogeusdt",
+            "adausdt",
+            "avaxusdt",
+            "dotusdt",
+            "trxusdt",
+            "linkusdt",
+            "maticusdt",
+            "ltcusdt",
+            "atomusdt",
+            "uniusdt",
+            "etcusdt",
+            "filusdt",
+            "nearusdt",
+            "aptusdt",
+            "opusdt"
+        )
+
+        val params =
+            JSONArray()
+
+        symbols.forEach {
+
+            params.put(
+                "${it}@ticker"
+            )
+        }
+
+        val request =
+            JSONObject()
+
+        request.put(
+            "method",
+            "SUBSCRIBE"
+        )
+
+        request.put(
+            "params",
+            params
+        )
+
+        request.put(
+            "id",
+            System.currentTimeMillis()
+        )
+
+        webSocket.send(
+            request.toString()
+        )
+    }
+
+    private fun updateRanks() {
+
+        val sorted =
+            coins.values
+                .sortedByDescending {
+                    it.volume
+                }
+
+        val ranked =
+            sorted.mapIndexed {
+                    index,
+                    coin ->
+
+                coin.copy(
+                    rank = index + 1
+                )
+            }
+
+        _coins.value =
+            ranked
+    }
+
+    private fun reconnect() {
+
+        if (stopped) {
+            return
+        }
+
+        Thread {
+
+            try {
+
+                Thread.sleep(2000)
+
+            } catch (_: Exception) {
+            }
+
+            if (!stopped) {
+
+                connect()
+            }
+
+        }.start()
+    }
+
+    fun stop() {
+
+        stopped = true
+
+        webSocket?.close(
+            1000,
+            "Stopped"
+        )
+
+        webSocket = null
+
+        client.dispatcher
+            .executorService
+            .shutdown()
+    }
+}
+
+class CryptoViewModel : ViewModel() {
+
+    private val manager =
+        BinanceWebSocketManager()
+
+    val coins =
+        manager.coinsFlow
+
+    val connection =
+        manager.connectionFlow
+
+    val error =
+        manager.errorFlow
+
+    init {
+
+        manager.start()
+    }
+
+    override fun onCleared() {
+
+        manager.stop()
+
+        super.onCleared()
+    }
 }
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+
+        super.onCreate(
+            savedInstanceState
+        )
 
         setContent {
+
             MaterialTheme {
+
                 MainAppScreen()
             }
         }
@@ -61,11 +422,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppScreen() {
 
-    val drawerState = rememberDrawerState(
-        initialValue = DrawerValue.Closed
-    )
+    val drawerState =
+        rememberDrawerState(
+            DrawerValue.Closed
+        )
 
-    val scope = rememberCoroutineScope()
+    val scope =
+        rememberCoroutineScope()
 
     var selectedTab by remember {
         mutableIntStateOf(0)
@@ -73,75 +436,111 @@ fun MainAppScreen() {
 
     ModalNavigationDrawer(
 
-        drawerState = drawerState,
+        drawerState =
+            drawerState,
 
         drawerContent = {
 
             ModalDrawerSheet {
 
                 Spacer(
-                    modifier = Modifier.height(16.dp)
+                    Modifier.height(16.dp)
                 )
 
                 Text(
-                    text = "Crypto App Menu",
-                    modifier = Modifier.padding(16.dp),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+
+                    text =
+                        "Crypto App Menu",
+
+                    modifier =
+                        Modifier.padding(16.dp),
+
+                    fontSize =
+                        20.sp,
+
+                    fontWeight =
+                        FontWeight.Bold
                 )
 
                 HorizontalDivider()
 
                 NavigationDrawerItem(
+
                     label = {
-                        Text("Profile & Settings")
+                        Text(
+                            "Profile & Settings"
+                        )
                     },
+
                     selected = false,
+
                     onClick = {
+
                         scope.launch {
+
                             drawerState.close()
                         }
                     },
+
                     icon = {
+
                         Icon(
                             Icons.Default.Person,
-                            contentDescription = null
+                            null
                         )
                     }
                 )
 
                 NavigationDrawerItem(
+
                     label = {
-                        Text("API Configuration")
+                        Text(
+                            "API Configuration"
+                        )
                     },
+
                     selected = false,
+
                     onClick = {
+
                         scope.launch {
+
                             drawerState.close()
                         }
                     },
+
                     icon = {
+
                         Icon(
                             Icons.Default.Settings,
-                            contentDescription = null
+                            null
                         )
                     }
                 )
 
                 NavigationDrawerItem(
+
                     label = {
-                        Text("Realtime Connection")
+                        Text(
+                            "Realtime Connection"
+                        )
                     },
+
                     selected = false,
+
                     onClick = {
+
                         scope.launch {
+
                             drawerState.close()
                         }
                     },
+
                     icon = {
+
                         Icon(
                             Icons.Default.Wifi,
-                            contentDescription = null
+                            null
                         )
                     }
                 )
@@ -156,53 +555,60 @@ fun MainAppScreen() {
 
                 NavigationBar {
 
-                    val navItems = listOf(
-                        "Home",
-                        "Chart",
-                        "Trade",
-                        "Analysis",
-                        "News"
-                    )
+                    val names =
+                        listOf(
+                            "Home",
+                            "Chart",
+                            "Trade",
+                            "Analysis",
+                            "News"
+                        )
 
-                    val icons = listOf(
-                        Icons.Default.Home,
-                        Icons.Default.ShowChart,
-                        Icons.Default.SwapHoriz,
-                        Icons.Default.Analytics,
-                        Icons.Default.Notifications
-                    )
+                    val icons =
+                        listOf(
+                            Icons.Default.Home,
+                            Icons.Default.ShowChart,
+                            Icons.Default.SwapHoriz,
+                            Icons.Default.Analytics,
+                            Icons.Default.Notifications
+                        )
 
-                    navItems.forEachIndexed { index, item ->
+                    names.forEachIndexed {
+                            index,
+                            name ->
 
                         NavigationBarItem(
 
-                            selected = selectedTab == index,
+                            selected =
+                                selectedTab ==
+                                    index,
 
                             onClick = {
-                                selectedTab = index
+
+                                selectedTab =
+                                    index
                             },
 
                             icon = {
+
                                 Icon(
                                     icons[index],
-                                    contentDescription = item
+                                    name
                                 )
                             },
 
                             label = {
-                                Text(item)
+                                Text(name)
                             }
                         )
                     }
                 }
             }
 
-        ) { paddingValues ->
+        ) { padding ->
 
             Box(
-                modifier = Modifier.padding(
-                    paddingValues
-                )
+                Modifier.padding(padding)
             ) {
 
                 when (selectedTab) {
@@ -210,8 +616,11 @@ fun MainAppScreen() {
                     0 -> {
 
                         HomeScreen(
+
                             onMenuClick = {
+
                                 scope.launch {
+
                                     drawerState.open()
                                 }
                             }
@@ -219,13 +628,15 @@ fun MainAppScreen() {
                     }
 
                     2 -> {
-                        com.practice.cryptoapp.ui.TradeScreen()
+
+                        com.practice.cryptoapp.ui
+                            .TradeScreen()
                     }
 
                     else -> {
 
                         PlaceholderScreen(
-                            title = "Screen Under Construction"
+                            "Screen Under Construction"
                         )
                     }
                 }
@@ -240,14 +651,14 @@ fun PlaceholderScreen(
 ) {
 
     Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+
+        Modifier.fillMaxSize(),
+
+        contentAlignment =
+            Alignment.Center
     ) {
 
-        Text(
-            text = title,
-            fontSize = 18.sp
-        )
+        Text(title)
     }
 }
 
@@ -256,13 +667,25 @@ fun HomeScreen(
     onMenuClick: () -> Unit
 ) {
 
-    val scope = rememberCoroutineScope()
+    val viewModel =
+        remember {
+            CryptoViewModel()
+        }
 
-    var searchQuery by remember {
+    val coins by
+        viewModel.coins.collectAsState()
+
+    val connection by
+        viewModel.connection.collectAsState()
+
+    val error by
+        viewModel.error.collectAsState()
+
+    var search by remember {
         mutableStateOf("")
     }
 
-    var filterType by remember {
+    var filter by remember {
         mutableStateOf("ALL")
     }
 
@@ -270,306 +693,29 @@ fun HomeScreen(
         mutableIntStateOf(20)
     }
 
-    var demoBalance by remember {
+    var balance by remember {
         mutableDoubleStateOf(10000.0)
     }
 
-    var allCoins by remember {
-        mutableStateOf<List<CryptoCoin>>(
-            emptyList()
-        )
-    }
-
-    var connectionState by remember {
-        mutableStateOf("Connecting...")
-    }
-
-    var errorText by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    DisposableEffect(Unit) {
-
-        val client = OkHttpClient.Builder()
-            .build()
-
-        var webSocket: WebSocket? = null
-
-        var closed = false
-
-        fun connectWebSocket() {
-
-            if (closed) {
-                return
-            }
-
-            val request = Request.Builder()
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * Market data comes ONLY from
-                 * Binance WebSocket.
-                 *
-                 * NO REST API is used here.
-                 */
-
-                .url(
-                    "wss://stream.binance.com:9443/ws/!ticker@arr"
-                )
-
-                .build()
-
-            webSocket = client.newWebSocket(
-
-                request,
-
-                object : WebSocketListener() {
-
-                    override fun onOpen(
-                        webSocket: WebSocket,
-                        response: Response
-                    ) {
-
-                        scope.launch(
-                            Dispatchers.Main
-                        ) {
-
-                            connectionState = "LIVE"
-
-                            errorText = null
-                        }
-                    }
-
-                    override fun onMessage(
-                        webSocket: WebSocket,
-                        text: String
-                    ) {
-
-                        try {
-
-                            val jsonArray =
-                                JSONArray(text)
-
-                            /*
-                             * Existing coins ko map mein rakhein
-                             */
-                            val currentCoins =
-                                allCoins.associateBy {
-                                    it.symbol
-                                }.toMutableMap()
-
-                            /*
-                             * Binance !ticker@arr
-                             * complete ticker array bhejta hai.
-                             */
-                            for (
-                                i in 0 until jsonArray.length()
-                            ) {
-
-                                val obj =
-                                    jsonArray.getJSONObject(i)
-
-                                val fullSymbol =
-                                    obj.optString("s")
-
-                                /*
-                                 * Sirf USDT markets.
-                                 */
-                                if (
-                                    !fullSymbol.endsWith("USDT")
-                                ) {
-                                    continue
-                                }
-
-                                val symbol =
-                                    fullSymbol.removeSuffix(
-                                        "USDT"
-                                    )
-
-                                val price =
-                                    obj.optString("c")
-                                        .toDoubleOrNull()
-                                        ?: continue
-
-                                val change24h =
-                                    obj.optString("P")
-                                        .toDoubleOrNull()
-                                        ?: 0.0
-
-                                val volume =
-                                    obj.optString("q")
-                                        .toDoubleOrNull()
-                                        ?: 0.0
-
-                                val existing =
-                                    currentCoins[symbol]
-
-                                if (existing == null) {
-
-                                    /*
-                                     * Pehli baar coin WSS
-                                     * se mila.
-                                     */
-                                    currentCoins[symbol] =
-                                        CryptoCoin(
-                                            symbol = symbol,
-                                            initialPrice = price,
-                                            initialChange24h =
-                                                change24h,
-                                            initialVolume =
-                                                volume
-                                        )
-
-                                } else {
-
-                                    /*
-                                     * LIVE UPDATE
-                                     */
-                                    existing.price =
-                                        price
-
-                                    existing.change24h =
-                                        change24h
-
-                                    existing.volume =
-                                        volume
-                                }
-                            }
-
-                            /*
-                             * Volume ke hisaab se rank.
-                             */
-                            val sortedCoins =
-                                currentCoins.values
-                                    .sortedByDescending {
-                                        it.volume
-                                    }
-                                    .onEachIndexed {
-                                            index,
-                                            coin ->
-
-                                        coin.rank =
-                                            index + 1
-                                    }
-
-                            scope.launch(
-                                Dispatchers.Main
-                            ) {
-
-                                allCoins =
-                                    sortedCoins
-                            }
-
-                        } catch (e: Exception) {
-
-                            scope.launch(
-                                Dispatchers.Main
-                            ) {
-
-                                errorText =
-                                    "WebSocket data error"
-                            }
-                        }
-                    }
-
-                    override fun onClosing(
-                        webSocket: WebSocket,
-                        code: Int,
-                        reason: String
-                    ) {
-
-                        webSocket.close(
-                            code,
-                            reason
-                        )
-
-                        scope.launch(
-                            Dispatchers.Main
-                        ) {
-
-                            connectionState =
-                                "Reconnecting..."
-                        }
-                    }
-
-                    override fun onFailure(
-                        webSocket: WebSocket,
-                        t: Throwable,
-                        response: Response?
-                    ) {
-
-                        scope.launch(
-                            Dispatchers.Main
-                        ) {
-
-                            connectionState =
-                                "Reconnecting..."
-
-                            errorText =
-                                "WebSocket disconnected"
-                        }
-
-                        /*
-                         * Automatic reconnect.
-                         */
-                        if (!closed) {
-
-                            scope.launch {
-
-                                delay(2000)
-
-                                connectWebSocket()
-                            }
-                        }
-                    }
-                }
-            )
-        }
-
-        /*
-         * App screen open hote hi
-         * WebSocket connection.
-         */
-        connectWebSocket()
-
-        onDispose {
-
-            closed = true
-
-            webSocket?.close(
-                1000,
-                "Screen Closed"
-            )
-
-            client.dispatcher
-                .executorService
-                .shutdown()
-        }
-    }
-
-    /*
-     * Search + All/Gainer/Loser
-     */
-    val filteredCoins =
+    val filtered =
         remember(
-            searchQuery,
-            filterType,
-            visibleCount,
-            allCoins
+            coins,
+            search,
+            filter,
+            visibleCount
         ) {
 
             var list =
-                allCoins.filter {
+                coins.filter {
 
                     it.symbol.contains(
-                        searchQuery,
+                        search,
                         ignoreCase = true
                     )
                 }
 
             list =
-                when (filterType) {
+                when (filter) {
 
                     "GAINER" -> {
 
@@ -593,7 +739,7 @@ fun HomeScreen(
                     }
                 }
 
-            if (searchQuery.isBlank()) {
+            if (search.isBlank()) {
 
                 list.take(
                     visibleCount
@@ -605,38 +751,19 @@ fun HomeScreen(
             }
         }
 
-    val timeframes = listOf(
-        "1h",
-        "4h",
-        "8h",
-        "12h",
-        "24h",
-        "1d",
-        "2d",
-        "3d",
-        "4d",
-        "5d",
-        "6d",
-        "7d",
-        "15d",
-        "30d"
-    )
-
     LazyColumn(
 
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(12.dp)
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(12.dp)
     ) {
 
-        /*
-         * HEADER
-         */
         item {
 
             Row(
 
-                modifier = Modifier
+                Modifier
                     .fillMaxWidth()
                     .padding(
                         bottom = 12.dp
@@ -646,43 +773,33 @@ fun HomeScreen(
                     Alignment.CenterVertically
             ) {
 
-                Box(
+                Icon(
 
-                    modifier =
-                        Modifier.clickable {
+                    Icons.Default.Menu,
+
+                    "Menu",
+
+                    Modifier
+                        .size(32.dp)
+                        .clickable {
                             onMenuClick()
                         }
-                ) {
-
-                    Icon(
-
-                        imageVector =
-                            Icons.Default.Menu,
-
-                        contentDescription =
-                            "Menu",
-
-                        modifier =
-                            Modifier.size(32.dp)
-                    )
-                }
+                )
 
                 Spacer(
-                    modifier =
-                        Modifier.width(8.dp)
+                    Modifier.width(8.dp)
                 )
 
                 Column(
-                    modifier =
-                        Modifier.weight(1f)
+                    Modifier.weight(1f)
                 ) {
 
                     Text(
 
-                        text =
-                            "Crypto Exchange Demo",
+                        "Crypto Exchange Demo",
 
-                        fontSize = 18.sp,
+                        fontSize =
+                            18.sp,
 
                         fontWeight =
                             FontWeight.Bold
@@ -690,59 +807,57 @@ fun HomeScreen(
 
                     Text(
 
-                        text =
-                            "Binance WebSocket",
+                        "Binance WebSocket ONLY",
 
-                        fontSize = 11.sp,
+                        fontSize =
+                            11.sp,
 
-                        color = Color.Gray
+                        color =
+                            Color.Gray
                     )
                 }
 
                 Text(
 
-                    text =
-                        "● $connectionState",
+                    "● $connection",
 
-                    fontSize = 11.sp,
+                    fontSize =
+                        11.sp,
 
                     color =
                         if (
-                            connectionState ==
+                            connection ==
                             "LIVE"
                         ) {
+
                             Color(0xFF008000)
+
                         } else {
+
                             Color(0xFFFF8C00)
                         }
                 )
             }
         }
 
-        /*
-         * DEMO BALANCE
-         */
         item {
 
             Card(
 
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            vertical = 6.dp
-                        )
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        vertical = 6.dp
+                    )
             ) {
 
                 Column(
-                    modifier =
-                        Modifier.padding(12.dp)
+                    Modifier.padding(12.dp)
                 ) {
 
                     Row(
 
-                        modifier =
-                            Modifier.fillMaxWidth(),
+                        Modifier.fillMaxWidth(),
 
                         horizontalArrangement =
                             Arrangement.SpaceBetween,
@@ -754,26 +869,22 @@ fun HomeScreen(
                         Column {
 
                             Text(
-                                text =
-                                    "Demo Balance",
-
+                                "Demo Balance",
                                 fontSize =
                                     12.sp,
-
                                 color =
                                     Color.Gray
                             )
 
                             Text(
 
-                                text =
-                                    "$${
-                                        String.format(
-                                            Locale.US,
-                                            "%.2f",
-                                            demoBalance
-                                        )
-                                    }",
+                                "$${
+                                    String.format(
+                                        Locale.US,
+                                        "%.2f",
+                                        balance
+                                    )
+                                }",
 
                                 fontSize =
                                     22.sp,
@@ -787,173 +898,92 @@ fun HomeScreen(
 
                             onClick = {
 
-                                demoBalance =
+                                balance =
                                     10000.0
                             },
 
                             enabled =
-                                demoBalance <= 100.0
+                                balance <=
+                                    100.0
                         ) {
 
                             Text("Reset")
-                        }
-                    }
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(10.dp)
-                    )
-
-                    Text(
-                        text =
-                            "P/L Statistics",
-
-                        fontSize =
-                            11.sp,
-
-                        fontWeight =
-                            FontWeight.SemiBold
-                    )
-
-                    LazyRow(
-
-                        modifier =
-                            Modifier.padding(
-                                top = 4.dp
-                            )
-                    ) {
-
-                        items(timeframes) { timeframe ->
-
-                            Card(
-
-                                modifier =
-                                    Modifier.padding(
-                                        end = 6.dp
-                                    )
-                            ) {
-
-                                Column(
-
-                                    modifier =
-                                        Modifier.padding(
-                                            7.dp
-                                        ),
-
-                                    horizontalAlignment =
-                                        Alignment.CenterHorizontally
-                                ) {
-
-                                    Text(
-                                        timeframe,
-                                        fontSize = 10.sp,
-                                        color = Color.Gray
-                                    )
-
-                                    Text(
-                                        "0.0%",
-                                        fontSize = 11.sp,
-                                        fontWeight =
-                                            FontWeight.Bold
-                                    )
-                                }
-                            }
                         }
                     }
                 }
             }
         }
 
-        /*
-         * TEMPORARY MARKET OVERVIEW
-         *
-         * Is step mein hum sirf WSS verify
-         * kar rahe hain.
-         */
         item {
 
             Card(
 
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            vertical = 6.dp
-                        )
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        vertical = 6.dp
+                    )
             ) {
 
                 Column(
-                    modifier =
-                        Modifier.padding(12.dp)
+                    Modifier.padding(12.dp)
                 ) {
 
                     Text(
-                        text =
-                            "Global Market Overview",
 
-                        fontSize =
-                            13.sp,
+                        "Binance Realtime",
 
                         fontWeight =
                             FontWeight.Bold
                     )
 
                     Spacer(
-                        modifier =
-                            Modifier.height(6.dp)
+                        Modifier.height(6.dp)
                     )
 
                     Text(
-                        text =
-                            "Realtime Binance WebSocket",
 
-                        fontSize =
-                            11.sp,
-
-                        color =
-                            Color.Gray
-                    )
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(4.dp)
-                    )
-
-                    Text(
-                        text =
-                            "${allCoins.size} USDT markets received",
+                        "${coins.size} markets",
 
                         fontSize =
                             12.sp
                     )
+
+                    error?.let {
+
+                        Text(
+
+                            it,
+
+                            fontSize =
+                                11.sp,
+
+                            color =
+                                Color.Red
+                        )
+                    }
                 }
             }
         }
 
-        /*
-         * SEARCH
-         */
         item {
 
             OutlinedTextField(
 
                 value =
-                    searchQuery,
+                    search,
 
                 onValueChange = {
-                    searchQuery = it
+                    search = it
                 },
 
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            vertical = 6.dp
-                        ),
+                    Modifier.fillMaxWidth(),
 
                 placeholder = {
+
                     Text(
-                        "Search Binance Coins..."
+                        "Search crypto..."
                     )
                 },
 
@@ -961,22 +991,18 @@ fun HomeScreen(
 
                     Icon(
                         Icons.Default.Search,
-                        contentDescription =
-                            null
+                        null
                     )
                 },
 
                 singleLine = true
             )
 
-            Row(
+            Spacer(
+                Modifier.height(6.dp)
+            )
 
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            vertical = 4.dp
-                        ),
+            Row(
 
                 horizontalArrangement =
                     Arrangement.spacedBy(8.dp)
@@ -985,10 +1011,10 @@ fun HomeScreen(
                 FilterChip(
 
                     selected =
-                        filterType == "ALL",
+                        filter == "ALL",
 
                     onClick = {
-                        filterType =
+                        filter =
                             "ALL"
                     },
 
@@ -1000,10 +1026,10 @@ fun HomeScreen(
                 FilterChip(
 
                     selected =
-                        filterType == "GAINER",
+                        filter == "GAINER",
 
                     onClick = {
-                        filterType =
+                        filter =
                             "GAINER"
                     },
 
@@ -1015,10 +1041,10 @@ fun HomeScreen(
                 FilterChip(
 
                     selected =
-                        filterType == "LOSER",
+                        filter == "LOSER",
 
                     onClick = {
-                        filterType =
+                        filter =
                             "LOSER"
                     },
 
@@ -1027,36 +1053,24 @@ fun HomeScreen(
                     }
                 )
             }
-
-            errorText?.let {
-
-                Text(
-                    text = it,
-                    color = Color.Red,
-                    fontSize = 11.sp
-                )
-            }
         }
 
-        /*
-         * LOADING
-         */
-        if (allCoins.isEmpty()) {
+        if (coins.isEmpty()) {
 
             item {
 
                 Box(
 
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
 
                     contentAlignment =
                         Alignment.Center
                 ) {
 
                     Column(
+
                         horizontalAlignment =
                             Alignment.CenterHorizontally
                     ) {
@@ -1064,14 +1078,13 @@ fun HomeScreen(
                         CircularProgressIndicator()
 
                         Spacer(
-                            modifier =
-                                Modifier.height(10.dp)
+                            Modifier.height(10.dp)
                         )
 
                         Text(
-                            "Waiting for Binance WebSocket...",
-                            fontSize = 12.sp,
-                            color = Color.Gray
+                            "Connecting to Binance...",
+                            fontSize =
+                                12.sp
                         )
                     }
                 }
@@ -1079,22 +1092,21 @@ fun HomeScreen(
 
         } else {
 
-            /*
-             * COIN LIST
-             */
             itemsIndexed(
 
-                items =
-                    filteredCoins,
+                filtered,
 
-                key = { _, coin ->
+                key = {
+                        _,
+                        coin ->
+
                     coin.symbol
                 }
 
             ) { _, coin ->
 
                 CryptoRow(
-                    coin = coin
+                    coin
                 )
 
                 HorizontalDivider(
@@ -1103,21 +1115,17 @@ fun HomeScreen(
                 )
             }
 
-            /*
-             * PAGINATION
-             */
-            if (searchQuery.isBlank()) {
+            if (search.isBlank()) {
 
                 item {
 
                     Row(
 
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    vertical = 12.dp
-                                ),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                vertical = 12.dp
+                            ),
 
                         horizontalArrangement =
                             Arrangement.SpaceBetween,
@@ -1133,7 +1141,8 @@ fun HomeScreen(
                                 visibleCount =
                                     maxOf(
                                         20,
-                                        visibleCount - 50
+                                        visibleCount -
+                                            50
                                     )
                             },
 
@@ -1147,22 +1156,15 @@ fun HomeScreen(
                         }
 
                         Text(
-
-                            text =
-                                "Showing $visibleCount",
-
-                            fontSize =
-                                12.sp,
-
-                            color =
-                                Color.Gray
+                            "Showing $visibleCount"
                         )
 
                         Button(
 
                             onClick = {
 
-                                visibleCount += 50
+                                visibleCount +=
+                                    50
                             }
                         ) {
 
@@ -1184,12 +1186,11 @@ fun CryptoRow(
 
     Row(
 
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    vertical = 8.dp
-                ),
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 8.dp
+            ),
 
         verticalAlignment =
             Alignment.CenterVertically
@@ -1197,8 +1198,7 @@ fun CryptoRow(
 
         Text(
 
-            text =
-                "#${coin.rank}",
+            "#${coin.rank}",
 
             fontSize =
                 11.sp,
@@ -1210,18 +1210,11 @@ fun CryptoRow(
                 Modifier.width(38.dp)
         )
 
-        /*
-         * Temporary logo placeholder.
-         *
-         * CoinGecko logos next step mein
-         * properly connect karenge.
-         */
         Box(
 
-            modifier =
-                Modifier
-                    .size(30.dp)
-                    .clip(CircleShape),
+            Modifier
+                .size(30.dp)
+                .clip(CircleShape),
 
             contentAlignment =
                 Alignment.Center
@@ -1229,51 +1222,32 @@ fun CryptoRow(
 
             Text(
 
-                text =
-                    coin.symbol
-                        .take(1),
+                coin.symbol.take(1),
 
                 fontWeight =
-                    FontWeight.Bold,
-
-                fontSize =
-                    13.sp
+                    FontWeight.Bold
             )
         }
 
         Spacer(
-            modifier =
-                Modifier.width(8.dp)
+            Modifier.width(8.dp)
         )
 
         Column(
-
-            modifier =
-                Modifier.weight(1.2f)
+            Modifier.weight(1f)
         ) {
 
             Text(
 
-                text =
-                    "${coin.symbol}/USDT",
+                "${coin.symbol}/USDT",
 
                 fontWeight =
-                    FontWeight.Bold,
-
-                fontSize =
-                    14.sp
+                    FontWeight.Bold
             )
 
             Text(
 
-                text =
-                    "Vol: $${
-                        String.format(
-                            Locale.US,
-                            "%.0f",
-                            coin.volume / 1_000_000
-                        )
-                    }M",
+                "24h volume",
 
                 fontSize =
                     10.sp,
@@ -1284,60 +1258,55 @@ fun CryptoRow(
         }
 
         Column(
-
             horizontalAlignment =
-                Alignment.End,
-
-            modifier =
-                Modifier.weight(1.5f)
+                Alignment.End
         ) {
 
             Text(
 
-                text =
-                    "$${
-                        String.format(
-                            Locale.US,
-                            "%.8f",
-                            coin.price
-                        )
-                            .trimEnd('0')
-                            .trimEnd('.')
-                    }",
+                "${
+                    String.format(
+                        Locale.US,
+                        "%.8f",
+                        coin.price
+                    )
+                        .trimEnd('0')
+                        .trimEnd('.')
+                }",
 
                 fontWeight =
-                    FontWeight.Bold,
-
-                fontSize =
-                    13.sp
+                    FontWeight.Bold
             )
-
-            val positive =
-                coin.change24h >= 0
 
             Text(
 
-                text =
-                    "${
-                        if (positive) "+"
-                        else ""
-                    }${
-                        String.format(
-                            Locale.US,
-                            "%.2f",
-                            coin.change24h
-                        )
-                    }%",
-
-                fontSize =
-                    11.sp,
+                "${
+                    if (
+                        coin.change24h >= 0
+                    ) "+"
+                    else ""
+                }${
+                    String.format(
+                        Locale.US,
+                        "%.2f",
+                        coin.change24h
+                    )
+                }%",
 
                 color =
-                    if (positive) {
+                    if (
+                        coin.change24h >= 0
+                    ) {
+
                         Color(0xFF008000)
+
                     } else {
+
                         Color.Red
-                    }
+                    },
+
+                fontSize =
+                    11.sp
             )
         }
     }
