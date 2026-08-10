@@ -2200,40 +2200,13 @@ fun HeaderSection(
         ) {
 
             Text(
-                "Crypto Exchange",
+                "Test Exchange",
                 fontSize =
                     16.sp,
 
                 fontWeight =
                     FontWeight.Bold
             )
-
-            Text(
-                "Binance Live Market",
-                fontSize =
-                    9.sp,
-
-                color =
-                    Color.Gray
-            )
-        }
-
-        Text(
-
-            "● $status",
-
-            fontSize =
-                10.sp,
-
-            color =
-                if (
-                    status == "LIVE"
-                ) {
-                    PositiveGreen
-                } else {
-                    Color.Gray
-                }
-        )
     }
 }
 
