@@ -1,6 +1,8 @@
 package com.practice.cryptoapp
 
 import android.os.Bundle
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -1146,27 +1148,70 @@ class CryptoViewModel : ViewModel() {
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    override fun onCreate(savedInstanceState: Bundle?) {
 
-        super.onCreate(
-            savedInstanceState
-        )
+        super.onCreate(savedInstanceState)
 
         setContent {
 
             MaterialTheme(
                 colorScheme =
                     lightColorScheme(
-                        primary =
-                            PurpleMimosa
+                        primary = PurpleMimosa
                     )
             ) {
 
-                CryptoExchangeApp()
+                var showWelcome by remember {
+                    mutableStateOf(true)
+                }
+
+                LaunchedEffect(Unit) {
+
+                    delay(2000)
+
+                    showWelcome = false
+                }
+
+                if (showWelcome) {
+
+                    WelcomeScreen()
+
+                } else {
+
+                    CryptoExchangeApp()
+                }
             }
         }
+    }
+}
+
+// ============================================================
+// WELCOME SCREEN
+// ==========================================================
+
+@Composable
+fun WelcomeScreen() {
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+
+        Image(
+
+            painter =
+                painterResource(
+                    id = R.drawable.welcome_image
+                ),
+
+            contentDescription =
+                "Welcome",
+
+            modifier =
+                Modifier.fillMaxSize(),
+
+            contentScale =
+                ContentScale.Crop
+        )
     }
 }
 
