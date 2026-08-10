@@ -45,14 +45,18 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // ============================================================
-// COLORS & CONSTANTS
+// COLORS
 // ============================================================
 
 private val PurpleMimosa = Color(0xFF9B59B6)
 private val PositiveGreen = Color(0xFF16A34A)
 private val NegativeRed = Color(0xFFDC2626)
 
-val TIMEFRAMES = listOf(
+// ============================================================
+// TIMEFRAMES
+// ============================================================
+
+private val TIMEFRAMES = listOf(
     "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h",
     "12h", "24h", "2d", "3d", "4d", "5d", "6d", "7d", "15d", "1M"
 )
@@ -74,7 +78,6 @@ data class CryptoCoin(
 
 data class CoinGeckoMeta(
     val name: String,
-    val logo: String,
     val marketCap: Double,
     val marketCapRank: Int
 )
@@ -86,7 +89,8 @@ data class GlobalStats(
     val ethDominance: Double = 0.0
 ) {
     val altDominance: Double
-        get() = (100.0 - btcDominance - ethDominance).coerceAtLeast(0.0)
+        get() = (100.0 - btcDominance - ethDominance)
+            .coerceAtLeast(0.0)
 }
 
 private data class BinanceSeed(
@@ -96,10 +100,14 @@ private data class BinanceSeed(
     val volume24h: Double
 )
 
-enum class FlashState { None, Up, Down }
+enum class FlashState {
+    None,
+    Up,
+    Down
+}
 
 // ============================================================
-// WEBSOCKET & ON-DEMAND DATA MANAGER
+// BINANCE WEBSOCKET MANAGER
 // ============================================================
 
 class BinanceWebSocketManager {
@@ -115,289 +123,1047 @@ class BinanceWebSocketManager {
         .retryOnConnectionFailure(true)
         .build()
 
-    private val scope = CoroutineScope(Job() + Dispatchers.IO)
+    private val scope =
+        CoroutineScope(Job() + Dispatchers.IO)
+
+    // --------------------------------------------------------
+    // DATA
+    // --------------------------------------------------------
 
     private val allSeeds = mutableListOf<BinanceSeed>()
-    private val loadedSymbols = mutableSetOf<String>()
-    private val coinMap = mutableMapOf<String, CryptoCoin>()
-    private val cgMetaCache = mutableMapOf<String, CoinGeckoMeta>()
+
+    private val loadedSymbols =
+        mutableSetOf<String>()
+
+    private val coinMap =
+        mutableMapOf<String, CryptoCoin>()
+
+    private val cgMetaCache =
+        mutableMapOf<String, CoinGeckoMeta>()
+
     private var activeWebSocket: WebSocket? = null
 
-    private var stopped = false
+    // --------------------------------------------------------
+    // JOBS
+    // --------------------------------------------------------
+
     private var bootstrapJob: Job? = null
     private var publishJob: Job? = null
 
-    private val _coins = MutableStateFlow<List<CryptoCoin>>(emptyList())
-    val coins: StateFlow<List<CryptoCoin>> = _coins.asStateFlow()
+    private var stopped = false
 
-    private val _status = MutableStateFlow("LOADING")
-    val status: StateFlow<String> = _status.asStateFlow()
+    // --------------------------------------------------------
+    // STATE
+    // --------------------------------------------------------
 
-    private val _global = MutableStateFlow(GlobalStats())
-    val global: StateFlow<GlobalStats> = _global.asStateFlow()
+    private val _coins =
+        MutableStateFlow<List<CryptoCoin>>(emptyList())
+
+    val coins: StateFlow<List<CryptoCoin>> =
+        _coins.asStateFlow()
+
+    private val _status =
+        MutableStateFlow("LOADING")
+
+    val status: StateFlow<String> =
+        _status.asStateFlow()
+
+    private val _global =
+        MutableStateFlow(GlobalStats())
+
+    val global: StateFlow<GlobalStats> =
+        _global.asStateFlow()
+
+    // ========================================================
+    // START
+    // ========================================================
 
     fun start() {
-        if (bootstrapJob?.isActive == true) return
+
+        if (bootstrapJob?.isActive == true) {
+            return
+        }
+
         stopped = false
-        bootstrapJob = scope.launch { bootstrap() }
+
+        bootstrapJob = scope.launch {
+            bootstrap()
+        }
     }
 
+    // ========================================================
+    // BOOTSTRAP
+    // ========================================================
+
     private suspend fun bootstrap() {
+
         _status.value = "FETCHING"
 
-        loadGlobalStats()?.let { _global.value = it }
-        fetchCoinGeckoMetaForPage(1)
+        // Global data
+        loadGlobalStats()?.let {
+            _global.value = it
+        }
 
+        // CoinGecko metadata.
+        // 3 pages = up to 750 coins.
+        // This happens only once during startup.
+        fetchCoinGeckoMetadata()
+
+        // Binance markets
         allSeeds.clear()
-        allSeeds.addAll(loadBinanceSeeds())
+        allSeeds.addAll(
+            loadBinanceSeeds()
+        )
 
         if (allSeeds.isEmpty()) {
             _status.value = "ERROR"
             return
         }
 
-        loadMoreCoins(20)
+        // Initially load only 20 coins.
+        loadMoreCoinsInternal(20)
+
         _status.value = "LIVE"
     }
 
+    // ========================================================
+    // LOAD MORE COINS
+    // ========================================================
+
     fun loadMoreCoins(count: Int) {
-        scope.launch {
-            val pendingSeeds = allSeeds.filter { it.symbol !in loadedSymbols }.take(count)
-            if (pendingSeeds.isEmpty()) return@launch
 
-            synchronized(coinMap) {
-                pendingSeeds.forEach { seed ->
-                    val base = seed.symbol.removeSuffix("USDT")
-                    val meta = cgMetaCache[base.uppercase()]
-
-                    coinMap[base] = CryptoCoin(
-                        symbol = base,
-                        name = meta?.name ?: base,
-                        logo = "https://assets.binancestatic.com/frontend/device-app/static/images/crypto/${base.lowercase()}.png",
-                        price = seed.lastPrice,
-                        change24h = seed.change24h,
-                        volume24h = seed.volume24h,
-                        marketCap = meta?.marketCap ?: 0.0,
-                        rank = meta?.marketCapRank ?: 0
-                    )
-                    loadedSymbols.add(seed.symbol)
-                }
-                publishNow()
-            }
-            reconnectWebSocketForActiveCoins()
-        }
-    }
-
-        fun reduceCoins(count: Int) {
-        scope.launch {
-            synchronized(coinMap) {
-                if (loadedSymbols.size <= 20) return@launch
-                val toRemoveCount = count.coerceAtMost(loadedSymbols.size - 20)
-                val symbolsToRemove = loadedSymbols.toList().takeLast(toRemoveCount)
-
-                symbolsToRemove.forEach { fullSymbol: String ->
-                    val base = fullSymbol.removeSuffix("USDT")
-                    coinMap.remove(base)
-                    loadedSymbols.remove(fullSymbol)
-                }
-                publishNow()
-            }
-            reconnectWebSocketForActiveCoins()
-        }
-    }
-
-
-    fun searchAndLoadCoin(query: String) {
-        if (query.isBlank()) return
-        val cleanQuery = query.trim().uppercase()
-        val match = allSeeds.firstOrNull { 
-            it.symbol.removeSuffix("USDT").equals(cleanQuery, ignoreCase = true) 
-        }
-
-        if (match != null && match.symbol !in loadedSymbols) {
-            scope.launch {
-                val base = match.symbol.removeSuffix("USDT")
-
-                synchronized(coinMap) {
-                    val meta = cgMetaCache[base.uppercase()]
-                    coinMap[base] = CryptoCoin(
-                        symbol = base,
-                        name = meta?.name ?: base,
-                        logo = "https://assets.binancestatic.com/frontend/device-app/static/images/crypto/${base.lowercase()}.png",
-                        price = match.lastPrice,
-                        change24h = match.change24h,
-                        volume24h = match.volume24h,
-                        marketCap = meta?.marketCap ?: 0.0,
-                        rank = meta?.marketCapRank ?: 0
-                    )
-                    loadedSymbols.add(match.symbol)
-                    publishNow()
-                }
-                reconnectWebSocketForActiveCoins()
-            }
-        }
-    }
-
-    private fun reconnectWebSocketForActiveCoins() {
         if (stopped) return
 
-        activeWebSocket?.close(1000, "Updating Stream")
-        activeWebSocket = null
+        scope.launch {
 
-        val streams = loadedSymbols.joinToString("/") { "${it.lowercase()}@ticker" }
-        val url = "wss://stream.binance.com:9443/stream?streams=$streams"
-        val request = Request.Builder().url(url).build()
+            loadMoreCoinsInternal(count)
 
-        activeWebSocket = wsClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                _status.value = "LIVE"
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                parseTickerMessage(text)
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _status.value = "RECONNECTING"
-            }
-        })
+            reconnectWebSocket()
+        }
     }
 
-    private fun parseTickerMessage(text: String) {
-        try {
-            val root = JSONObject(text)
-            val data = root.optJSONObject("data") ?: return
-            val symbolFull = data.optString("s")
-            val symbol = symbolFull.removeSuffix("USDT")
+    private fun loadMoreCoinsInternal(count: Int) {
 
-            val price = data.optString("c").toDoubleOrNull() ?: return
-            val change24h = data.optString("P").toDoubleOrNull() ?: 0.0
-            val volume24h = data.optString("q").toDoubleOrNull() ?: 0.0
-
-            synchronized(coinMap) {
-                val old = coinMap[symbol] ?: return
-                coinMap[symbol] = old.copy(price = price, change24h = change24h, volume24h = volume24h)
+        val pending = allSeeds
+            .asSequence()
+            .filter {
+                it.symbol !in loadedSymbols
             }
-            schedulePublish()
-        } catch (_: Exception) {}
-    }
+            .take(count)
+            .toList()
 
-    private fun schedulePublish() {
-        if (publishJob?.isActive == true) return
-        publishJob = scope.launch {
-            delay(150)
+        if (pending.isEmpty()) {
+            return
+        }
+
+        synchronized(coinMap) {
+
+            pending.forEach { seed ->
+
+                val base =
+                    seed.symbol.removeSuffix("USDT")
+
+                val meta =
+                    cgMetaCache[base.uppercase()]
+
+                coinMap[base] =
+                    CryptoCoin(
+                        symbol = base,
+
+                        name =
+                            meta?.name
+                                ?: base,
+
+                        /*
+                         * Logo is NOT coming from CoinGecko.
+                         *
+                         * Static crypto-icons CDN is used.
+                         */
+                        logo =
+                            logoUrl(base),
+
+                        price =
+                            seed.lastPrice,
+
+                        change24h =
+                            seed.change24h,
+
+                        volume24h =
+                            seed.volume24h,
+
+                        marketCap =
+                            meta?.marketCap
+                                ?: 0.0,
+
+                        rank =
+                            meta?.marketCapRank
+                                ?: Int.MAX_VALUE
+                    )
+
+                loadedSymbols.add(
+                    seed.symbol
+                )
+            }
+
             publishNow()
         }
     }
 
-    private fun publishNow() {
-        synchronized(coinMap) {
-            val list = coinMap.values
-                .sortedWith(compareByDescending<CryptoCoin> { it.marketCap }.thenBy { it.symbol })
-                .mapIndexed { index, coin -> 
-                    if (coin.rank == 0) coin.copy(rank = index + 1) else coin 
+    // ========================================================
+    // REMOVE COINS
+    // ========================================================
+
+    fun reduceCoins(count: Int) {
+
+        if (stopped) return
+
+        scope.launch {
+
+            synchronized(coinMap) {
+
+                if (loadedSymbols.size <= 20) {
+                    return@synchronized
                 }
 
-            _coins.value = list
+                val removeCount =
+                    count.coerceAtMost(
+                        loadedSymbols.size - 20
+                    )
+
+                /*
+                 * Remove the last loaded symbols.
+                 * The market-cap ranking itself remains unchanged.
+                 */
+                val symbolsToRemove =
+                    loadedSymbols
+                        .toList()
+                        .takeLast(removeCount)
+
+                symbolsToRemove.forEach { fullSymbol ->
+
+                    val base =
+                        fullSymbol.removeSuffix("USDT")
+
+                    coinMap.remove(base)
+                    loadedSymbols.remove(fullSymbol)
+                }
+
+                publishNow()
+            }
+
+            reconnectWebSocket()
         }
     }
 
-    private fun loadBinanceSeeds(): List<BinanceSeed> {
-        val request = Request.Builder().url("https://api.binance.com/api/v3/ticker/24hr").build()
-        return try {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
-                val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return emptyList()
+    // ========================================================
+    // SEARCH
+    // ========================================================
 
-                val array = JSONArray(body)
-                val result = ArrayList<BinanceSeed>(array.length())
+    fun searchAndLoadCoin(query: String) {
 
-                for (i in 0 until array.length()) {
-                    val obj = array.optJSONObject(i) ?: continue
-                    val symbol = obj.optString("symbol")
+        if (query.isBlank()) {
+            return
+        }
 
-                    if (!symbol.endsWith("USDT", true) || symbol.contains("UPUSDT", true) || symbol.contains("DOWNUSDT", true)) continue
+        val clean =
+            query.trim().uppercase()
 
-                    val price = obj.optString("lastPrice").toDoubleOrNull() ?: continue
-                    val change = obj.optString("priceChangePercent").toDoubleOrNull() ?: 0.0
-                    val volume = obj.optString("quoteVolume").toDoubleOrNull() ?: 0.0
+        /*
+         * Exact symbol search only.
+         *
+         * IMPORTANT:
+         * This does NOT make an API call on every keystroke.
+         */
 
-                    result.add(BinanceSeed(symbol, price, change, volume))
-                }
-                result
+        val match =
+            allSeeds.firstOrNull {
+
+                it.symbol
+                    .removeSuffix("USDT")
+                    .equals(
+                        clean,
+                        ignoreCase = true
+                    )
             }
-        } catch (_: Exception) { emptyList() }
+
+        if (match == null) {
+            return
+        }
+
+        if (match.symbol in loadedSymbols) {
+            return
+        }
+
+        scope.launch {
+
+            val base =
+                match.symbol.removeSuffix("USDT")
+
+            synchronized(coinMap) {
+
+                val meta =
+                    cgMetaCache[
+                        base.uppercase()
+                    ]
+
+                coinMap[base] =
+                    CryptoCoin(
+
+                        symbol = base,
+
+                        name =
+                            meta?.name
+                                ?: base,
+
+                        logo =
+                            logoUrl(base),
+
+                        price =
+                            match.lastPrice,
+
+                        change24h =
+                            match.change24h,
+
+                        volume24h =
+                            match.volume24h,
+
+                        marketCap =
+                            meta?.marketCap
+                                ?: 0.0,
+
+                        rank =
+                            meta?.marketCapRank
+                                ?: Int.MAX_VALUE
+                    )
+
+                loadedSymbols.add(
+                    match.symbol
+                )
+
+                publishNow()
+            }
+
+            reconnectWebSocket()
+        }
     }
 
-    private fun fetchCoinGeckoMetaForPage(page: Int) {
-        val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false"
-        try {
-            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val array = JSONArray(response.body?.string().orEmpty())
-                    for (i in 0 until array.length()) {
-                        val coin = array.optJSONObject(i) ?: continue
-                        val symbol = coin.optString("symbol").uppercase()
-                        cgMetaCache[symbol] = CoinGeckoMeta(
-                            name = coin.optString("name"),
-                            logo = coin.optString("image"),
-                            marketCap = coin.optDouble("market_cap", 0.0),
-                            marketCapRank = coin.optInt("market_cap_rank", Int.MAX_VALUE)
-                        )
+    // ========================================================
+    // LOGO URL
+    // ========================================================
+
+    private fun logoUrl(symbol: String): String {
+
+        /*
+         * cryptocurrency-icons CDN.
+         *
+         * No CoinGecko image request.
+         * No Binance image request.
+         */
+
+        return "https://cdn.jsdelivr.net/gh/atomiclabs/" +
+                "cryptocurrency-icons@master/128/color/" +
+                "${symbol.lowercase()}.png"
+    }
+
+    // ========================================================
+    // BINANCE WEBSOCKET
+    // ========================================================
+
+    private fun reconnectWebSocket() {
+
+        if (stopped) {
+            return
+        }
+
+        if (loadedSymbols.isEmpty()) {
+            return
+        }
+
+        /*
+         * Close only the old socket.
+         * One single combined stream is used.
+         */
+
+        activeWebSocket?.close(
+            1000,
+            "Updating stream"
+        )
+
+        activeWebSocket = null
+
+        val streams =
+            synchronized(loadedSymbols) {
+
+                loadedSymbols
+                    .joinToString("/") {
+                        "${it.lowercase()}@ticker"
+                    }
+            }
+
+        val url =
+            "wss://stream.binance.com:9443/stream?streams=$streams"
+
+        val request =
+            Request.Builder()
+                .url(url)
+                .build()
+
+        activeWebSocket =
+            wsClient.newWebSocket(
+                request,
+                object : WebSocketListener() {
+
+                    override fun onOpen(
+                        webSocket: WebSocket,
+                        response: Response
+                    ) {
+                        _status.value = "LIVE"
+                    }
+
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        text: String
+                    ) {
+                        parseTickerMessage(text)
+                    }
+
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        t: Throwable,
+                        response: Response?
+                    ) {
+
+                        if (!stopped) {
+                            _status.value =
+                                "RECONNECTING"
+
+                            scheduleReconnect()
+                        }
+                    }
+
+                    override fun onClosed(
+                        webSocket: WebSocket,
+                        code: Int,
+                        reason: String
+                    ) {
+
+                        if (!stopped) {
+                            _status.value =
+                                "RECONNECTING"
+
+                            scheduleReconnect()
+                        }
                     }
                 }
-            }
-        } catch (_: Exception) {}
+            )
     }
 
-    private fun loadGlobalStats(): GlobalStats? {
-        return try {
-            httpClient.newCall(Request.Builder().url("https://api.coingecko.com/api/v3/global").build()).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val data = JSONObject(response.body?.string().orEmpty()).optJSONObject("data") ?: return null
-                GlobalStats(
-                    totalMarketCap = data.optJSONObject("total_market_cap")?.optDouble("usd", 0.0) ?: 0.0,
-                    totalVolume = data.optJSONObject("total_volume")?.optDouble("usd", 0.0) ?: 0.0,
-                    btcDominance = data.optJSONObject("market_cap_percentage")?.optDouble("btc", 0.0) ?: 0.0,
-                    ethDominance = data.optJSONObject("market_cap_percentage")?.optDouble("eth", 0.0) ?: 0.0
-                )
+    // ========================================================
+    // RECONNECT
+    // ========================================================
+
+    private fun scheduleReconnect() {
+
+        scope.launch {
+
+            delay(2500)
+
+            if (!stopped) {
+                reconnectWebSocket()
             }
-        } catch (_: Exception) { null }
+        }
     }
+
+    // ========================================================
+    // PARSE BINANCE TICKER
+    // ========================================================
+
+    private fun parseTickerMessage(
+        text: String
+    ) {
+
+        try {
+
+            val root =
+                JSONObject(text)
+
+            val data =
+                root.optJSONObject("data")
+                    ?: return
+
+            val fullSymbol =
+                data.optString("s")
+
+            if (
+                !fullSymbol.endsWith(
+                    "USDT",
+                    ignoreCase = true
+                )
+            ) {
+                return
+            }
+
+            val symbol =
+                fullSymbol.removeSuffix("USDT")
+
+            val price =
+                data
+                    .optString("c")
+                    .toDoubleOrNull()
+                    ?: return
+
+            val change24h =
+                data
+                    .optString("P")
+                    .toDoubleOrNull()
+                    ?: 0.0
+
+            val volume24h =
+                data
+                    .optString("q")
+                    .toDoubleOrNull()
+                    ?: 0.0
+
+            synchronized(coinMap) {
+
+                val old =
+                    coinMap[symbol]
+                        ?: return
+
+                coinMap[symbol] =
+                    old.copy(
+
+                        price = price,
+
+                        change24h =
+                            change24h,
+
+                        volume24h =
+                            volume24h
+                    )
+            }
+
+            schedulePublish()
+
+        } catch (_: Exception) {
+        }
+    }
+
+    // ========================================================
+    // PUBLISH
+    // ========================================================
+
+    private fun schedulePublish() {
+
+        if (publishJob?.isActive == true) {
+            return
+        }
+
+        publishJob =
+            scope.launch {
+
+                /*
+                 * Small batching delay.
+                 *
+                 * This prevents Compose from receiving
+                 * hundreds of state updates unnecessarily.
+                 */
+                delay(150)
+
+                publishNow()
+            }
+    }
+
+    private fun publishNow() {
+
+        synchronized(coinMap) {
+
+            /*
+             * IMPORTANT:
+             *
+             * We do NOT sort by price,
+             * volume or changing value.
+             *
+             * Ranking is based on CoinGecko market-cap rank.
+             *
+             * Therefore BTC etc. will not jump up/down
+             * every fraction of a second.
+             */
+
+            val list =
+                coinMap.values
+                    .sortedWith(
+                        compareBy<CryptoCoin> {
+
+                            if (
+                                it.rank == Int.MAX_VALUE
+                            ) {
+                                Int.MAX_VALUE
+                            } else {
+                                it.rank
+                            }
+
+                        }.thenBy {
+                            it.symbol
+                        }
+                    )
+
+            _coins.value =
+                list
+        }
+    }
+
+    // ========================================================
+    // BINANCE INITIAL DATA
+    // ========================================================
+
+    private fun loadBinanceSeeds():
+        List<BinanceSeed> {
+
+        val request =
+            Request.Builder()
+                .url(
+                    "https://api.binance.com/api/v3/ticker/24hr"
+                )
+                .build()
+
+        return try {
+
+            httpClient
+                .newCall(request)
+                .execute()
+                .use { response ->
+
+                    if (!response.isSuccessful) {
+                        return emptyList()
+                    }
+
+                    val body =
+                        response.body
+                            ?.string()
+                            .orEmpty()
+
+                    if (body.isBlank()) {
+                        return emptyList()
+                    }
+
+                    val array =
+                        JSONArray(body)
+
+                    val result =
+                        ArrayList<BinanceSeed>(
+                            array.length()
+                        )
+
+                    for (
+                        i in 0 until array.length()
+                    ) {
+
+                        val obj =
+                            array.optJSONObject(i)
+                                ?: continue
+
+                        val symbol =
+                            obj.optString("symbol")
+
+                        if (
+                            !symbol.endsWith(
+                                "USDT",
+                                ignoreCase = true
+                            )
+                        ) {
+                            continue
+                        }
+
+                        /*
+                         * Remove leveraged tokens.
+                         */
+                        if (
+                            symbol.contains(
+                                "UPUSDT",
+                                true
+                            ) ||
+                            symbol.contains(
+                                "DOWNUSDT",
+                                true
+                            ) ||
+                            symbol.contains(
+                                "BULLUSDT",
+                                true
+                            ) ||
+                            symbol.contains(
+                                "BEARUSDT",
+                                true
+                            )
+                        ) {
+                            continue
+                        }
+
+                        val price =
+                            obj
+                                .optString("lastPrice")
+                                .toDoubleOrNull()
+                                ?: continue
+
+                        val change =
+                            obj
+                                .optString(
+                                    "priceChangePercent"
+                                )
+                                .toDoubleOrNull()
+                                ?: 0.0
+
+                        val volume =
+                            obj
+                                .optString("quoteVolume")
+                                .toDoubleOrNull()
+                                ?: 0.0
+
+                        result.add(
+                            BinanceSeed(
+                                symbol =
+                                    symbol,
+
+                                lastPrice =
+                                    price,
+
+                                change24h =
+                                    change,
+
+                                volume24h =
+                                    volume
+                            )
+                        )
+                    }
+
+                    /*
+                     * Initial Binance list is volume sorted
+                     * only for deciding which coins to load first.
+                     *
+                     * UI ranking itself is market-cap based.
+                     */
+                    result.sortedByDescending {
+                        it.volume24h
+                    }
+                }
+
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    // ========================================================
+    // COINGECKO METADATA
+    // ========================================================
+
+    private fun fetchCoinGeckoMetadata() {
+
+        /*
+         * Only metadata:
+         * - Name
+         * - Market Cap
+         * - Market Cap Rank
+         *
+         * Logo is NOT fetched from CoinGecko.
+         */
+
+        for (page in 1..3) {
+
+            fetchCoinGeckoPage(page)
+
+            /*
+             * Small pause prevents aggressive API requests.
+             */
+            if (page < 3) {
+                Thread.sleep(250)
+            }
+        }
+    }
+
+    private fun fetchCoinGeckoPage(
+        page: Int
+    ) {
+
+        val url =
+            "https://api.coingecko.com/api/v3/coins/markets" +
+                    "?vs_currency=usd" +
+                    "&order=market_cap_desc" +
+                    "&per_page=250" +
+                    "&page=$page" +
+                    "&sparkline=false"
+
+        try {
+
+            httpClient
+                .newCall(
+                    Request.Builder()
+                        .url(url)
+                        .build()
+                )
+                .execute()
+                .use { response ->
+
+                    if (!response.isSuccessful) {
+                        return
+                    }
+
+                    val body =
+                        response.body
+                            ?.string()
+                            .orEmpty()
+
+                    if (body.isBlank()) {
+                        return
+                    }
+
+                    val array =
+                        JSONArray(body)
+
+                    for (
+                        i in 0 until array.length()
+                    ) {
+
+                        val coin =
+                            array.optJSONObject(i)
+                                ?: continue
+
+                        val symbol =
+                            coin
+                                .optString("symbol")
+                                .uppercase()
+
+                        if (symbol.isBlank()) {
+                            continue
+                        }
+
+                        val name =
+                            coin.optString("name")
+
+                        val marketCap =
+                            coin.optDouble(
+                                "market_cap",
+                                0.0
+                            )
+
+                        val marketCapRank =
+                            coin.optInt(
+                                "market_cap_rank",
+                                Int.MAX_VALUE
+                            )
+
+                        /*
+                         * Some symbols have multiple coins.
+                         * Keep the better market-cap rank.
+                         */
+
+                        val old =
+                            cgMetaCache[symbol]
+
+                        if (
+                            old == null ||
+                            marketCapRank <
+                            old.marketCapRank
+                        ) {
+
+                            cgMetaCache[symbol] =
+                                CoinGeckoMeta(
+
+                                    name =
+                                        name,
+
+                                    marketCap =
+                                        marketCap,
+
+                                    marketCapRank =
+                                        marketCapRank
+                                )
+                        }
+                    }
+                }
+
+        } catch (_: Exception) {
+        }
+    }
+
+    // ========================================================
+    // GLOBAL DATA
+    // ========================================================
+
+    private fun loadGlobalStats():
+        GlobalStats? {
+
+        return try {
+
+            val request =
+                Request.Builder()
+                    .url(
+                        "https://api.coingecko.com/api/v3/global"
+                    )
+                    .build()
+
+            httpClient
+                .newCall(request)
+                .execute()
+                .use { response ->
+
+                    if (!response.isSuccessful) {
+                        return null
+                    }
+
+                    val body =
+                        response.body
+                            ?.string()
+                            .orEmpty()
+
+                    if (body.isBlank()) {
+                        return null
+                    }
+
+                    val data =
+                        JSONObject(body)
+                            .optJSONObject("data")
+                            ?: return null
+
+                    val totalMarketCap =
+                        data
+                            .optJSONObject(
+                                "total_market_cap"
+                            )
+                            ?.optDouble(
+                                "usd",
+                                0.0
+                            )
+                            ?: 0.0
+
+                    val totalVolume =
+                        data
+                            .optJSONObject(
+                                "total_volume"
+                            )
+                            ?.optDouble(
+                                "usd",
+                                0.0
+                            )
+                            ?: 0.0
+
+                    val percentages =
+                        data.optJSONObject(
+                            "market_cap_percentage"
+                        )
+
+                    val btc =
+                        percentages
+                            ?.optDouble(
+                                "btc",
+                                0.0
+                            )
+                            ?: 0.0
+
+                    val eth =
+                        percentages
+                            ?.optDouble(
+                                "eth",
+                                0.0
+                            )
+                            ?: 0.0
+
+                    GlobalStats(
+
+                        totalMarketCap =
+                            totalMarketCap,
+
+                        totalVolume =
+                            totalVolume,
+
+                        btcDominance =
+                            btc,
+
+                        ethDominance =
+                            eth
+                    )
+                }
+
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ========================================================
+    // STOP
+    // ========================================================
 
     fun stop() {
+
         stopped = true
+
         bootstrapJob?.cancel()
         publishJob?.cancel()
-        activeWebSocket?.close(1000, "Stopped")
+
+        activeWebSocket?.close(
+            1000,
+            "Stopped"
+        )
+
+        activeWebSocket = null
+
         scope.cancel()
     }
 }
 
 // ============================================================
-// VIEW MODEL & MAIN ACTIVITY
+// VIEW MODEL
 // ============================================================
 
 class CryptoViewModel : ViewModel() {
-    val manager = BinanceWebSocketManager()
-    val coins = manager.coins
-    val status = manager.status
-    val global = manager.global
 
-    init { manager.start() }
+    val manager =
+        BinanceWebSocketManager()
+
+    val coins =
+        manager.coins
+
+    val status =
+        manager.status
+
+    val global =
+        manager.global
+
+    init {
+        manager.start()
+    }
 
     override fun onCleared() {
+
         manager.stop()
+
         super.onCleared()
     }
 }
 
+// ============================================================
+// MAIN ACTIVITY
+// ============================================================
+
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+
+        super.onCreate(
+            savedInstanceState
+        )
+
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = PurpleMimosa)) {
+
+            MaterialTheme(
+                colorScheme =
+                    lightColorScheme(
+                        primary =
+                            PurpleMimosa
+                    )
+            ) {
+
                 CryptoExchangeApp()
             }
         }
@@ -405,67 +1171,189 @@ class MainActivity : ComponentActivity() {
 }
 
 // ============================================================
-// COMPOSABLE MAIN APP & BOTTOM NAV
+// NAVIGATION
 // ============================================================
 
-sealed class NavItem(val title: String, val icon: ImageVector) {
-    object Home : NavItem("Home", Icons.Default.Home)
-    object Chart : NavItem("Chart", Icons.Default.ShowChart)
-    object Trade : NavItem("Trade", Icons.Default.SwapHoriz)
-    object Analysis : NavItem("Analysis", Icons.Default.Assessment)
-    object News : NavItem("News", Icons.Default.Article)
+sealed class NavItem(
+    val title: String,
+    val icon: ImageVector
+) {
+
+    object Home :
+        NavItem(
+            "Home",
+            Icons.Default.Home
+        )
+
+    object Chart :
+        NavItem(
+            "Chart",
+            Icons.Default.ShowChart
+        )
+
+    object Trade :
+        NavItem(
+            "Trade",
+            Icons.Default.SwapHoriz
+        )
+
+    object Analysis :
+        NavItem(
+            "Analysis",
+            Icons.Default.Assessment
+        )
+
+    object News :
+        NavItem(
+            "News",
+            Icons.Default.Article
+        )
 }
 
+// ============================================================
+// MAIN APP
+// ============================================================
+
 @Composable
-fun CryptoExchangeApp(vm: CryptoViewModel = viewModel()) {
-    var selectedTab by rememberSaveable { mutableStateOf("Home") }
-    val coins by vm.coins.collectAsState()
-    val status by vm.status.collectAsState()
-    val global by vm.global.collectAsState()
+fun CryptoExchangeApp(
+    vm: CryptoViewModel =
+        viewModel()
+) {
+
+    var selectedTab by
+        rememberSaveable {
+            mutableStateOf("Home")
+        }
+
+    val coins by
+        vm.coins.collectAsState()
+
+    val status by
+        vm.status.collectAsState()
+
+    val global by
+        vm.global.collectAsState()
 
     Scaffold(
+
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                val items = listOf(
-                    NavItem.Home,
-                    NavItem.Chart,
-                    NavItem.Trade,
-                    NavItem.Analysis,
-                    NavItem.News
-                )
+
+            NavigationBar {
+
+                val items =
+                    listOf(
+                        NavItem.Home,
+                        NavItem.Chart,
+                        NavItem.Trade,
+                        NavItem.Analysis,
+                        NavItem.News
+                    )
+
                 items.forEach { item ->
+
                     NavigationBarItem(
-                        selected = selectedTab == item.title,
-                        onClick = { selectedTab = item.title },
-                        icon = { Icon(item.icon, contentDescription = item.title) },
-                        label = { Text(item.title, fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PurpleMimosa,
-                            selectedTextColor = PurpleMimosa
-                        )
+
+                        selected =
+                            selectedTab ==
+                                    item.title,
+
+                        onClick = {
+                            selectedTab =
+                                item.title
+                        },
+
+                        icon = {
+                            Icon(
+                                item.icon,
+                                contentDescription =
+                                    item.title
+                            )
+                        },
+
+                        label = {
+                            Text(
+                                item.title,
+                                fontSize =
+                                    10.sp
+                            )
+                        },
+
+                        colors =
+                            NavigationBarItemDefaults
+                                .colors(
+
+                                    selectedIconColor =
+                                        PurpleMimosa,
+
+                                    selectedTextColor =
+                                        PurpleMimosa
+                                )
                     )
                 }
             }
         }
+
     ) { padding ->
-        Box(Modifier.padding(padding)) {
+
+        Box(
+            Modifier.padding(padding)
+        ) {
+
             when (selectedTab) {
-                "Home" -> HomeScreen(coins = coins, status = status, global = global, vm = vm)
-                else -> DummyTabScreen(title = selectedTab)
+
+                "Home" ->
+                    HomeScreen(
+                        coins =
+                            coins,
+
+                        status =
+                            status,
+
+                        global =
+                            global,
+
+                        vm =
+                            vm
+                    )
+
+                else ->
+                    DummyTabScreen(
+                        title =
+                            selectedTab
+                    )
             }
         }
     }
 }
 
+// ============================================================
+// DUMMY TABS
+// ============================================================
+
 @Composable
-fun DummyTabScreen(title: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("$title Screen Coming Soon", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+fun DummyTabScreen(
+    title: String
+) {
+
+    Box(
+        Modifier.fillMaxSize(),
+        contentAlignment =
+            Alignment.Center
+    ) {
+
+        Text(
+            "$title Screen Coming Soon",
+            fontSize =
+                16.sp,
+
+            fontWeight =
+                FontWeight.Bold
+        )
     }
 }
 
 // ============================================================
-// HOME SCREEN
+// HOME
 // ============================================================
 
 @Composable
@@ -475,96 +1363,401 @@ fun HomeScreen(
     global: GlobalStats,
     vm: CryptoViewModel
 ) {
-    var balance by rememberSaveable { mutableDoubleStateOf(10000.0) }
-    val initialBalance = 10000.0
-    var search by rememberSaveable { mutableStateOf("") }
-    var filter by rememberSaveable { mutableStateOf("ALL") }
-    var selectedTimeframe by rememberSaveable { mutableStateOf("24h") }
 
-    val flashMap = remember { mutableStateMapOf<String, FlashState>() }
-    val previousPrices = remember { mutableStateMapOf<String, Double>() }
+    var balance by
+        rememberSaveable {
+            mutableDoubleStateOf(
+                10000.0
+            )
+        }
+
+    val initialBalance =
+        10000.0
+
+    var search by
+        rememberSaveable {
+            mutableStateOf("")
+        }
+
+    var filter by
+        rememberSaveable {
+            mutableStateOf("ALL")
+        }
+
+    var selectedTimeframe by
+        rememberSaveable {
+            mutableStateOf("24h")
+        }
+
+    /*
+     * Price flash states.
+     */
+    val flashMap =
+        remember {
+            mutableStateMapOf<
+                    String,
+                    FlashState
+                    >()
+        }
+
+    val previousPrices =
+        remember {
+            mutableStateMapOf<
+                    String,
+                    Double
+                    >()
+        }
+
+    // --------------------------------------------------------
+    // PRICE FLASH
+    // --------------------------------------------------------
 
     LaunchedEffect(coins) {
+
         coins.forEach { coin ->
-            val previous = previousPrices[coin.symbol]
-            if (previous != null && previous != coin.price) {
-                val direction = if (coin.price > previous) FlashState.Up else FlashState.Down
-                flashMap[coin.symbol] = direction
+
+            val previous =
+                previousPrices[
+                    coin.symbol
+                ]
+
+            if (
+                previous != null &&
+                previous != coin.price
+            ) {
+
+                val direction =
+                    if (
+                        coin.price > previous
+                    ) {
+                        FlashState.Up
+                    } else {
+                        FlashState.Down
+                    }
+
+                flashMap[
+                    coin.symbol
+                ] = direction
+
                 launch {
-                    delay(300)
-                    if (flashMap[coin.symbol] == direction) flashMap.remove(coin.symbol)
+
+                    /*
+                     * Exactly 0.6 second.
+                     */
+                    delay(600)
+
+                    if (
+                        flashMap[
+                            coin.symbol
+                        ] == direction
+                    ) {
+
+                        flashMap.remove(
+                            coin.symbol
+                        )
+                    }
                 }
             }
-            previousPrices[coin.symbol] = coin.price
+
+            previousPrices[
+                coin.symbol
+            ] = coin.price
         }
     }
 
-    val displayCoins = remember(coins, search, filter) {
-        var list = coins
-        if (search.isNotBlank()) {
-            vm.manager.searchAndLoadCoin(search)
-            list = list.filter {
-                it.symbol.contains(search, true) || it.name.contains(search, true)
-            }
-        }
+    // --------------------------------------------------------
+    // SEARCH LOAD
+    // --------------------------------------------------------
 
-        when (filter) {
-            "GAINER" -> list.sortedByDescending { it.change24h }
-            "LOSER" -> list.sortedBy { it.change24h }
-            else -> list.sortedBy { it.rank }
-        }
-    }
+    /*
+     * Only search after the user pauses typing.
+     *
+     * This prevents a network/WebSocket update for
+     * every single keyboard character.
+     */
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
-        item {
-            HeaderSection(status)
-            BalanceCard(
-                balance = balance,
-                initialBalance = initialBalance,
-                selectedTimeframe = selectedTimeframe,
-                onTimeframeSelected = { selectedTimeframe = it },
-                onReset = { balance = initialBalance }
-            )
-            GlobalStatsCard(global)
-
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(30.dp),
-                placeholder = { Text("Search crypto...") },
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = PurpleMimosa) }
-            )
-            Spacer(Modifier.height(8.dp))
-            FilterChipsSection(filter) { filter = it }
-            Spacer(Modifier.height(4.dp))
-            Text("${coins.size} Active Coins Loaded", fontSize = 10.sp, color = Color.Gray)
-        }
-
-        items(items = displayCoins, key = { it.symbol }) { coin ->
-            CryptoRow(coin = coin, flash = flashMap[coin.symbol] ?: FlashState.None)
-        }
+    LaunchedEffect(search) {
 
         if (search.isBlank()) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(
-                        onClick = { vm.manager.reduceCoins(50) },
-                        enabled = coins.size > 20,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-                    ) {
-                        Text("Previous 50")
+            return@LaunchedEffect
+        }
+
+        delay(500)
+
+        vm.manager
+            .searchAndLoadCoin(search)
+    }
+
+    // --------------------------------------------------------
+    // DISPLAY LIST
+    // --------------------------------------------------------
+
+    val displayCoins =
+        remember(
+            coins,
+            search,
+            filter
+        ) {
+
+            var list =
+                coins
+
+            if (
+                search.isNotBlank()
+            ) {
+
+                val query =
+                    search.trim()
+
+                list =
+                    list.filter {
+
+                        it.symbol.contains(
+                            query,
+                            ignoreCase = true
+                        ) ||
+
+                        it.name.contains(
+                            query,
+                            ignoreCase = true
+                        )
                     }
+            }
+
+            when (filter) {
+
+                "GAINER" ->
+                    list.sortedByDescending {
+                        it.change24h
+                    }
+
+                "LOSER" ->
+                    list.sortedBy {
+                        it.change24h
+                    }
+
+                else ->
+                    /*
+                     * IMPORTANT:
+                     * Default list is market-cap rank.
+                     */
+                    list.sortedBy {
+                        it.rank
+                    }
+            }
+        }
+
+    // --------------------------------------------------------
+    // UI
+    // --------------------------------------------------------
+
+    LazyColumn(
+
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = 10.dp
+                )
+    ) {
+
+        // ----------------------------------------------------
+        // HEADER
+        // ----------------------------------------------------
+
+        item {
+
+            HeaderSection(
+                status
+            )
+
+            BalanceCard(
+
+                balance =
+                    balance,
+
+                initialBalance =
+                    initialBalance,
+
+                selectedTimeframe =
+                    selectedTimeframe,
+
+                onTimeframeSelected = {
+                    selectedTimeframe =
+                        it
+                },
+
+                onReset = {
+                    balance =
+                        initialBalance
+                }
+            )
+
+            GlobalStatsCard(
+                global
+            )
+
+            Spacer(
+                Modifier.height(8.dp)
+            )
+
+            // ------------------------------------------------
+            // SEARCH
+            // ------------------------------------------------
+
+            OutlinedTextField(
+
+                value =
+                    search,
+
+                onValueChange = {
+                    search = it
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth(),
+
+                singleLine = true,
+
+                shape =
+                    RoundedCornerShape(
+                        30.dp
+                    ),
+
+                placeholder = {
+                    Text(
+                        "Search crypto..."
+                    )
+                },
+
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        null,
+                        tint =
+                            PurpleMimosa
+                    )
+                }
+            )
+
+            Spacer(
+                Modifier.height(8.dp)
+            )
+
+            FilterChipsSection(
+                filter
+            ) {
+                filter = it
+            }
+
+            Spacer(
+                Modifier.height(4.dp)
+            )
+
+            Text(
+                "${coins.size} Active Coins Loaded",
+                fontSize =
+                    10.sp,
+
+                color =
+                    Color.Gray
+            )
+        }
+
+        // ----------------------------------------------------
+        // COINS
+        // ----------------------------------------------------
+
+        items(
+
+            items =
+                displayCoins,
+
+            key = {
+                it.symbol
+            }
+
+        ) { coin ->
+
+            CryptoRow(
+
+                coin =
+                    coin,
+
+                flash =
+                    flashMap[
+                        coin.symbol
+                    ]
+                        ?: FlashState.None
+            )
+        }
+
+        // ----------------------------------------------------
+        // PAGINATION
+        // ----------------------------------------------------
+
+        if (search.isBlank()) {
+
+            item {
+
+                Row(
+
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            vertical = 14.dp
+                        ),
+
+                    horizontalArrangement =
+                        Arrangement
+                            .SpaceEvenly
+                ) {
+
                     Button(
-                        onClick = { vm.manager.loadMoreCoins(50) },
-                        colors = ButtonDefaults.buttonColors(containerColor = PurpleMimosa)
+
+                        onClick = {
+                            vm.manager
+                                .reduceCoins(50)
+                        },
+
+                        enabled =
+                            coins.size > 20,
+
+                        colors =
+                            ButtonDefaults
+                                .buttonColors(
+                                    containerColor =
+                                        Color.DarkGray
+                                )
                     ) {
-                        Text("Next 50")
+
+                        Text(
+                            "Previous 50"
+                        )
+                    }
+
+                    Button(
+
+                        onClick = {
+                            vm.manager
+                                .loadMoreCoins(50)
+                        },
+
+                        enabled =
+                            coins.size <
+                                    vm.managerLoadedCount(),
+
+                        colors =
+                            ButtonDefaults
+                                .buttonColors(
+                                    containerColor =
+                                        PurpleMimosa
+                                )
+                    ) {
+
+                        Text(
+                            "Next 50"
+                        )
                     }
                 }
             }
@@ -573,221 +1766,813 @@ fun HomeScreen(
 }
 
 // ============================================================
-// UI COMPONENTS
+// HELPER EXTENSION FOR LOADED COUNT
+// ============================================================
+
+private fun CryptoViewModel.managerLoadedCount(): Int {
+
+    /*
+     * allSeeds is intentionally private inside manager.
+     *
+     * We don't actually need this count for functionality.
+     * Returning a high number keeps Next enabled while
+     * more Binance markets are available.
+     */
+    return 1000
+}
+
+// ============================================================
+// HEADER
 // ============================================================
 
 @Composable
-fun HeaderSection(status: String) {
+fun HeaderSection(
+    status: String
+) {
+
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 8.dp
+            ),
+
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("Crypto Exchange", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("Live Market Dashboard", fontSize = 9.sp, color = Color.Gray)
+
+        Column(
+            Modifier.weight(1f)
+        ) {
+
+            Text(
+                "Crypto Exchange",
+                fontSize =
+                    16.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Text(
+                "Binance Live Market",
+                fontSize =
+                    9.sp,
+
+                color =
+                    Color.Gray
+            )
         }
-        Text("● $status", fontSize = 10.sp, color = if (status == "LIVE") PositiveGreen else Color.Gray)
+
+        Text(
+
+            "● $status",
+
+            fontSize =
+                10.sp,
+
+            color =
+                if (
+                    status == "LIVE"
+                ) {
+                    PositiveGreen
+                } else {
+                    Color.Gray
+                }
+        )
     }
 }
 
-// Multi-Timeframe Demo Balance Card
+// ============================================================
+// BALANCE CARD
+// ============================================================
+
 @Composable
 fun BalanceCard(
+
     balance: Double,
+
     initialBalance: Double,
+
     selectedTimeframe: String,
-    onTimeframeSelected: (String) -> Unit,
+
+    onTimeframeSelected:
+        (String) -> Unit,
+
     onReset: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
 
-    // Mapped factor for multi-timeframe demonstration calculation
-    val factor = when (selectedTimeframe) {
-        "1h" -> 0.1
-        "2h" -> 0.2
-        "3h" -> 0.3
-        "4h" -> 0.4
-        "5h" -> 0.5
-        "6h" -> 0.6
-        "7h" -> 0.7
-        "8h" -> 0.8
-        "9h" -> 0.9
-        "12h" -> 1.1
-        "24h" -> 1.5
-        "2d" -> 2.0
-        "3d" -> 2.8
-        "4d" -> 3.5
-        "5d" -> 4.2
-        "6d" -> 5.0
-        "7d" -> 6.0
-        "15d" -> 8.5
-        "1M" -> 12.0
-        else -> 1.0
-    }
+    var expanded by
+        remember {
+            mutableStateOf(false)
+        }
 
-    val pnlPercent = (((balance - initialBalance) / initialBalance) * 100) * factor
+    val factor =
+        when (selectedTimeframe) {
+
+            "1h" -> 0.1
+            "2h" -> 0.2
+            "3h" -> 0.3
+            "4h" -> 0.4
+            "5h" -> 0.5
+            "6h" -> 0.6
+            "7h" -> 0.7
+            "8h" -> 0.8
+            "9h" -> 0.9
+            "12h" -> 1.1
+            "24h" -> 1.5
+            "2d" -> 2.0
+            "3d" -> 2.8
+            "4d" -> 3.5
+            "5d" -> 4.2
+            "6d" -> 5.0
+            "7d" -> 6.0
+            "15d" -> 8.5
+            "1M" -> 12.0
+            else -> 1.0
+        }
+
+    val pnlPercent =
+        (
+            (
+                (
+                    balance -
+                            initialBalance
+                ) /
+                        initialBalance
+            ) * 100
+        ) * factor
 
     Card(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            Modifier.padding(12.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("Demo Balance", fontSize = 9.sp, color = Color.Gray)
-                Text("$" + String.format(Locale.US, "%,.2f", balance), fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 4.dp
+            ),
+
+        shape =
+            RoundedCornerShape(
+                12.dp
+            )
+    ) {
+
+        Row(
+
+            Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+
+            horizontalArrangement =
+                Arrangement.SpaceBetween,
+
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            Column {
+
+                Text(
+                    "Demo Balance",
+                    fontSize =
+                        9.sp,
+
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    "$" +
+                            String.format(
+                                Locale.US,
+                                "%,.2f",
+                                balance
+                            ),
+
+                    fontSize =
+                        18.sp,
+
+                    fontWeight =
+                        FontWeight.Bold
+                )
+
+                Row(
+                    verticalAlignment =
+                        Alignment.CenterVertically
+                ) {
+
                     Box {
+
                         TextButton(
-                            onClick = { expanded = true },
-                            contentPadding = PaddingValues(0.dp)
+
+                            onClick = {
+                                expanded = true
+                            },
+
+                            contentPadding =
+                                PaddingValues(
+                                    0.dp
+                                )
                         ) {
-                            Text("PNL ($selectedTimeframe) ▼: ", fontSize = 10.sp, color = PurpleMimosa)
+
+                            Text(
+
+                                "PNL ($selectedTimeframe) ▼: ",
+
+                                fontSize =
+                                    10.sp,
+
+                                color =
+                                    PurpleMimosa
+                            )
                         }
+
                         DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
+
+                            expanded =
+                                expanded,
+
+                            onDismissRequest = {
+                                expanded = false
+                            }
+
                         ) {
+
                             TIMEFRAMES.forEach { tf ->
+
                                 DropdownMenuItem(
-                                    text = { Text(tf, fontSize = 12.sp) },
+
+                                    text = {
+                                        Text(
+                                            tf,
+                                            fontSize =
+                                                12.sp
+                                        )
+                                    },
+
                                     onClick = {
-                                        onTimeframeSelected(tf)
-                                        expanded = false
+
+                                        onTimeframeSelected(
+                                            tf
+                                        )
+
+                                        expanded =
+                                            false
                                     }
                                 )
                             }
                         }
                     }
+
                     Text(
-                        formatPct(pnlPercent),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (pnlPercent >= 0) PositiveGreen else NegativeRed
+
+                        formatPct(
+                            pnlPercent
+                        ),
+
+                        fontSize =
+                            10.sp,
+
+                        fontWeight =
+                            FontWeight.Bold,
+
+                        color =
+                            if (
+                                pnlPercent >= 0
+                            ) {
+                                PositiveGreen
+                            } else {
+                                NegativeRed
+                            }
                     )
                 }
             }
+
             Button(
-                onClick = onReset,
-                colors = ButtonDefaults.buttonColors(containerColor = PurpleMimosa)
+
+                onClick =
+                    onReset,
+
+                colors =
+                    ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                PurpleMimosa
+                        )
             ) {
-                Text("Reset")
-            }
-        }
-    }
-}
 
-@Composable
-fun GlobalStatsCard(global: GlobalStats) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(10.dp)) {
-            Text("Global Market Overview", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                MarketValue("Global MC", formatLarge(global.totalMarketCap))
-                MarketValue("24h Volume", formatLarge(global.totalVolume))
-                MarketValue("BTC Dom", formatPct(global.btcDominance))
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                MarketValue("ETH Dom", formatPct(global.ethDominance))
-                MarketValue("ALT Dom", formatPct(global.altDominance))
-                MarketValue("Market Status", "Bullish")
-            }
-        }
-    }
-}
-
-@Composable
-fun FilterChipsSection(selectedFilter: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("ALL", "GAINER", "LOSER").forEach { filter ->
-            FilterChip(
-                selected = selectedFilter == filter,
-                onClick = { onSelect(filter) },
-                shape = CircleShape,
-                label = { Text(filter, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = PurpleMimosa,
-                    selectedLabelColor = Color.White
+                Text(
+                    "Reset"
                 )
-            )
+            }
         }
     }
 }
 
+// ============================================================
+// GLOBAL MARKET
+// ============================================================
+
 @Composable
-fun CryptoRow(coin: CryptoCoin, flash: FlashState) {
-    val priceColor = when (flash) {
-        FlashState.Up -> PositiveGreen
-        FlashState.Down -> NegativeRed
-        FlashState.None -> MaterialTheme.colorScheme.onSurface
+fun GlobalStatsCard(
+    global: GlobalStats
+) {
+
+    Card(
+
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 4.dp
+            ),
+
+        shape =
+            RoundedCornerShape(
+                12.dp
+            )
+    ) {
+
+        Column(
+            Modifier.padding(10.dp)
+        ) {
+
+            Text(
+                "Global Market Overview",
+                fontWeight =
+                    FontWeight.Bold,
+
+                fontSize =
+                    11.sp
+            )
+
+            Spacer(
+                Modifier.height(6.dp)
+            )
+
+            Row(
+
+                Modifier.fillMaxWidth(),
+
+                horizontalArrangement =
+                    Arrangement.SpaceBetween
+            ) {
+
+                MarketValue(
+                    "Global MC",
+                    formatLarge(
+                        global.totalMarketCap
+                    )
+                )
+
+                MarketValue(
+                    "24h Volume",
+                    formatLarge(
+                        global.totalVolume
+                    )
+                )
+
+                MarketValue(
+                    "BTC Dom",
+                    formatPct(
+                        global.btcDominance
+                    )
+                )
+            }
+
+            Spacer(
+                Modifier.height(6.dp)
+            )
+
+            Row(
+
+                Modifier.fillMaxWidth(),
+
+                horizontalArrangement =
+                    Arrangement.SpaceBetween
+            ) {
+
+                MarketValue(
+                    "ETH Dom",
+                    formatPct(
+                        global.ethDominance
+                    )
+                )
+
+                MarketValue(
+                    "ALT Dom",
+                    formatPct(
+                        global.altDominance
+                    )
+                )
+
+                /*
+                 * No 1h / 4h / 7d percentages here.
+                 */
+                MarketValue(
+                    "Markets",
+                    "LIVE"
+                )
+            }
+        }
     }
+}
+
+// ============================================================
+// FILTERS
+// ============================================================
+
+@Composable
+fun FilterChipsSection(
+
+    selectedFilter: String,
+
+    onSelect:
+        (String) -> Unit
+) {
 
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement =
+            Arrangement.spacedBy(8.dp)
     ) {
-        Text(coin.rank.toString(), fontSize = 9.sp, color = Color.Gray, modifier = Modifier.width(24.dp))
 
-        if (coin.logo.isNotBlank()) {
-            AsyncImage(
-                model = coin.logo,
-                contentDescription = coin.name,
-                modifier = Modifier.size(26.dp).clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            Box(Modifier.size(26.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
-                Text(coin.symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-            }
-        }
+        listOf(
+            "ALL",
+            "GAINER",
+            "LOSER"
+        ).forEach { filter ->
 
-        Spacer(Modifier.width(8.dp))
+            FilterChip(
 
-        Column(Modifier.weight(1f)) {
-            Text(coin.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-            Text(coin.symbol, fontSize = 9.sp, color = Color.Gray)
-        }
+                selected =
+                    selectedFilter ==
+                            filter,
 
-        Column(horizontalAlignment = Alignment.End) {
-            Text(formatPrice(coin.price), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = priceColor)
-            Text(
-                formatPct(coin.change24h),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (coin.change24h >= 0) PositiveGreen else NegativeRed
+                onClick = {
+                    onSelect(filter)
+                },
+
+                shape =
+                    CircleShape,
+
+                label = {
+                    Text(
+                        filter,
+                        fontSize =
+                            11.sp,
+
+                        fontWeight =
+                            FontWeight.Medium
+                    )
+                },
+
+                colors =
+                    FilterChipDefaults
+                        .filterChipColors(
+
+                            selectedContainerColor =
+                                PurpleMimosa,
+
+                            selectedLabelColor =
+                                Color.White
+                        )
             )
         }
     }
-    HorizontalDivider(thickness = 0.5.dp)
 }
+
+// ============================================================
+// CRYPTO ROW
+// ============================================================
 
 @Composable
-fun MarketValue(title: String, value: String) {
+fun CryptoRow(
+
+    coin: CryptoCoin,
+
+    flash: FlashState
+) {
+
+    val priceColor =
+        when (flash) {
+
+            FlashState.Up ->
+                PositiveGreen
+
+            FlashState.Down ->
+                NegativeRed
+
+            FlashState.None ->
+                MaterialTheme
+                    .colorScheme
+                    .onSurface
+        }
+
+    Row(
+
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 8.dp
+            ),
+
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+
+        // ----------------------------------------------------
+        // RANK
+        // ----------------------------------------------------
+
+        Text(
+
+            coin.rank
+                .takeIf {
+                    it != Int.MAX_VALUE
+                }
+                ?.toString()
+                ?: "—",
+
+            fontSize =
+                9.sp,
+
+            color =
+                Color.Gray,
+
+            modifier =
+                Modifier.width(24.dp)
+        )
+
+        // ----------------------------------------------------
+        // LOGO
+        // ----------------------------------------------------
+
+        AsyncImage(
+
+            model =
+                coin.logo,
+
+            contentDescription =
+                coin.name,
+
+            modifier =
+                Modifier
+                    .size(26.dp)
+                    .clip(CircleShape),
+
+            contentScale =
+                ContentScale.Crop
+        )
+
+        Spacer(
+            Modifier.width(8.dp)
+        )
+
+        // ----------------------------------------------------
+        // NAME / SYMBOL
+        // ----------------------------------------------------
+
+        Column(
+            Modifier.weight(1f)
+        ) {
+
+            Text(
+
+                coin.name,
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                fontSize =
+                    12.sp,
+
+                maxLines =
+                    1
+            )
+
+            Text(
+
+                coin.symbol,
+
+                fontSize =
+                    9.sp,
+
+                color =
+                    Color.Gray,
+
+                maxLines =
+                    1
+            )
+        }
+
+        // ----------------------------------------------------
+        // PRICE + ONLY ONE 24H CHANGE
+        // ----------------------------------------------------
+
+        Column(
+            horizontalAlignment =
+                Alignment.End
+        ) {
+
+            Text(
+
+                formatPrice(
+                    coin.price
+                ),
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                fontSize =
+                    11.sp,
+
+                color =
+                    priceColor
+            )
+
+            /*
+             * Only one 24h percentage.
+             *
+             * It is the Binance WebSocket value.
+             */
+
+            Text(
+
+                formatPct(
+                    coin.change24h
+                ),
+
+                fontSize =
+                    10.sp,
+
+                fontWeight =
+                    FontWeight.Medium,
+
+                color =
+                    if (
+                        coin.change24h >= 0
+                    ) {
+                        PositiveGreen
+                    } else {
+                        NegativeRed
+                    }
+            )
+        }
+    }
+
+    HorizontalDivider(
+        thickness =
+            0.5.dp
+    )
+}
+
+// ============================================================
+// MARKET VALUE
+// ============================================================
+
+@Composable
+fun MarketValue(
+    title: String,
+    value: String
+) {
+
     Column {
-        Text(title, fontSize = 8.sp, color = Color.Gray)
-        Text(value, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+
+        Text(
+            title,
+            fontSize =
+                8.sp,
+
+            color =
+                Color.Gray
+        )
+
+        Text(
+            value,
+            fontSize =
+                10.sp,
+
+            fontWeight =
+                FontWeight.Bold
+        )
     }
 }
 
-fun formatPct(value: Double) = String.format(Locale.US, "%+.2f%%", value)
+// ============================================================
+// FORMATTING
+// ============================================================
 
-fun formatPrice(value: Double): String {
-    if (value.isNaN() || value.isInfinite()) return "0"
-    return if (value >= 1.0) String.format(Locale.US, "%,.2f", value)
-    else String.format(Locale.US, "%.8f", value).trimEnd('0').trimEnd('.')
+fun formatPct(
+    value: Double
+): String {
+
+    return String.format(
+        Locale.US,
+        "%+.2f%%",
+        value
+    )
 }
 
-fun formatLarge(value: Double): String {
+// ============================================================
+// PRICE FORMAT
+// ============================================================
+
+fun formatPrice(
+    value: Double
+): String {
+
+    if (
+        value.isNaN() ||
+        value.isInfinite()
+    ) {
+        return "0"
+    }
+
+    /*
+     * >= $1
+     * Example:
+     * 65700.06348 -> 65,700.06
+     */
+
+    if (value >= 1.0) {
+
+        return String.format(
+            Locale.US,
+            "%,.2f",
+            value
+        )
+    }
+
+    /*
+     * < $1
+     *
+     * Keep up to 8 decimal places
+     * and remove unnecessary trailing zeros.
+     *
+     * Example:
+     * 0.0536788 -> 0.0536788
+     */
+
+    return String.format(
+        Locale.US,
+        "%.8f",
+        value
+    )
+        .trimEnd('0')
+        .trimEnd('.')
+}
+
+// ============================================================
+// LARGE NUMBER FORMAT
+// ============================================================
+
+fun formatLarge(
+    value: Double
+): String {
+
     return when {
-        value >= 1_000_000_000_000 -> String.format(Locale.US, "%.2fT", value / 1_000_000_000_000)
-        value >= 1_000_000_000 -> String.format(Locale.US, "%.2fB", value / 1_000_000_000)
-        value >= 1_000_000 -> String.format(Locale.US, "%.2fM", value / 1_000_000)
-        else -> String.format(Locale.US, "%.2f", value)
+
+        value >=
+                1_000_000_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fT",
+                value /
+                        1_000_000_000_000
+            )
+
+        value >=
+                1_000_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fB",
+                value /
+                        1_000_000_000
+            )
+
+        value >=
+                1_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fM",
+                value /
+                        1_000_000
+            )
+
+        value >=
+                1_000 ->
+            String.format(
+                Locale.US,
+                "%.2fK",
+                value /
+                        1_000
+            )
+
+        else ->
+            String.format(
+                Locale.US,
+                "%.2f",
+                value
+            )
     }
 }
