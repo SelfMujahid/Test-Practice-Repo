@@ -44,32 +44,24 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-
-// =====================================================
+// ============================================================
 // COLORS
-// =====================================================
+// ============================================================
 
-private val UpGreen = Color(0xFF008000)
-private val DownRed = Color.Red
-private val NormalPriceColor = Color.Black
+private val PurpleMimosa = Color(0xFF9B59B6)
+private val PositiveGreen = Color(0xFF16A34A)
+private val NegativeRed = Color(0xFFDC2626)
 
-
-// =====================================================
+// ============================================================
 // DATA
-// =====================================================
+// ============================================================
 
 data class CryptoCoin(
     val symbol: String,
     val name: String,
     val logo: String,
     val price: Double,
-
-    val change1h: Double,
-    val change4h: Double,
     val change24h: Double,
-    val change1d: Double,
-    val change7d: Double,
-
     val volume24h: Double,
     val marketCap: Double,
     val rank: Int
@@ -79,22 +71,14 @@ data class CoinGeckoMeta(
     val name: String,
     val logo: String,
     val marketCap: Double,
-    val marketCapRank: Int,
-    val change1h: Double,
-    val change7d: Double
+    val marketCapRank: Int
 )
 
 data class GlobalStats(
     val totalMarketCap: Double = 0.0,
     val totalVolume: Double = 0.0,
     val btcDominance: Double = 0.0,
-    val ethDominance: Double = 0.0,
-    val marketCapChange24h: Double = 0.0,
-
-    // Extra global changes
-    val marketCapChange1h: Double = 0.0,
-    val marketCapChange4h: Double = 0.0,
-    val marketCapChange7d: Double = 0.0
+    val ethDominance: Double = 0.0
 ) {
     val altDominance: Double
         get() = (100.0 - btcDominance - ethDominance).coerceAtLeast(0.0)
@@ -113,15 +97,9 @@ private data class StreamBatch(
     var reconnectJob: Job? = null
 )
 
-
-// =====================================================
+// ============================================================
 // FLASH STATE
-//
-// IMPORTANT:
-// This is NOT private because a public composable uses it.
-// This fixes:
-// "Function public exposes its private-in-file parameter type FlashState"
-// =====================================================
+// ============================================================
 
 enum class FlashState {
     None,
@@ -129,15 +107,15 @@ enum class FlashState {
     Down
 }
 
-
-// =====================================================
+// ============================================================
 // BINANCE WEBSOCKET MANAGER
-// =====================================================
+// ============================================================
 
 class BinanceWebSocketManager {
 
     private val httpClient = OkHttpClient.Builder()
         .callTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val wsClient = OkHttpClient.Builder()
@@ -146,17 +124,12 @@ class BinanceWebSocketManager {
         .retryOnConnectionFailure(true)
         .build()
 
-    private val scope =
-        CoroutineScope(Job() + Dispatchers.IO)
+    private val scope = CoroutineScope(Job() + Dispatchers.IO)
 
-    private val coinMap =
-        mutableMapOf<String, CryptoCoin>()
-
-    private val batches =
-        mutableMapOf<Int, StreamBatch>()
+    private val coinMap = mutableMapOf<String, CryptoCoin>()
+    private val batches = mutableMapOf<Int, StreamBatch>()
 
     private var stopped = false
-
     private var bootstrapJob: Job? = null
     private var publishJob: Job? = null
     private var metadataRefreshJob: Job? = null
@@ -179,51 +152,40 @@ class BinanceWebSocketManager {
     val global: StateFlow<GlobalStats> =
         _global.asStateFlow()
 
-
-    // =================================================
+    // ========================================================
     // START
-    // =================================================
+    // ========================================================
 
     fun start() {
-
-        if (bootstrapJob?.isActive == true) {
-            return
-        }
+        if (bootstrapJob?.isActive == true) return
 
         stopped = false
 
-        bootstrapJob =
-            scope.launch {
-                bootstrap()
-            }
+        bootstrapJob = scope.launch {
+            bootstrap()
+        }
     }
 
-
-    // =================================================
+    // ========================================================
     // BOOTSTRAP
-    // =================================================
+    // ========================================================
 
     private fun bootstrap() {
 
         _status.value = "FETCHING"
 
-        val cgMetaMap =
-            loadCoinGeckoMetaMap()
+        val cgMetaMap = loadCoinGeckoMetaMap()
 
-        val globalStats =
-            loadGlobalStats()
+        val globalStats = loadGlobalStats()
 
         if (globalStats != null) {
             _global.value = globalStats
         }
 
-        val seeds =
-            loadBinanceSeeds()
+        val seeds = loadBinanceSeeds()
 
         if (seeds.isEmpty()) {
-
             _status.value = "ERROR"
-
             return
         }
 
@@ -239,57 +201,40 @@ class BinanceWebSocketManager {
                 val meta =
                     cgMetaMap[base.uppercase()]
 
-                coinMap[base] =
-                    CryptoCoin(
+                coinMap[base] = CryptoCoin(
 
-                        symbol = base,
+                    symbol = base,
 
-                        name =
-                            meta?.name
-                                ?: base,
+                    name =
+                        meta?.name
+                            ?: base,
 
-                        logo =
-                            meta?.logo
-                                .orEmpty(),
+                    logo =
+                        meta?.logo
+                            .orEmpty(),
 
-                        price =
-                            seed.lastPrice,
+                    price =
+                        seed.lastPrice,
 
-                        change1h =
-                            meta?.change1h
-                                ?: 0.0,
+                    change24h =
+                        seed.change24h,
 
-                        change4h =
-                            0.0,
+                    volume24h =
+                        seed.volume24h,
 
-                        change24h =
-                            seed.change24h,
+                    marketCap =
+                        meta?.marketCap
+                            ?: 0.0,
 
-                        change1d =
-                            0.0,
-
-                        change7d =
-                            meta?.change7d
-                                ?: 0.0,
-
-                        volume24h =
-                            seed.volume24h,
-
-                        marketCap =
-                            meta?.marketCap
-                                ?: 0.0,
-
-                        rank = 0
-                    )
+                    rank = 0
+                )
             }
 
             publishNow()
         }
 
         connectBatches(
-            seeds.map {
-                it.symbol
-            }
+            seeds.map { it.symbol }
         )
 
         startMetadataRefresh()
@@ -297,13 +242,11 @@ class BinanceWebSocketManager {
         _status.value = "LIVE"
     }
 
-
-    // =================================================
+    // ========================================================
     // BINANCE REST
-    // =================================================
+    // ========================================================
 
-    private fun loadBinanceSeeds():
-            List<BinanceSeed> {
+    private fun loadBinanceSeeds(): List<BinanceSeed> {
 
         val request =
             Request.Builder()
@@ -332,18 +275,18 @@ class BinanceWebSocketManager {
                         return emptyList()
                     }
 
-                    val arr =
+                    val array =
                         JSONArray(body)
 
                     val result =
                         ArrayList<BinanceSeed>(
-                            arr.length()
+                            array.length()
                         )
 
-                    for (i in 0 until arr.length()) {
+                    for (i in 0 until array.length()) {
 
                         val obj =
-                            arr.optJSONObject(i)
+                            array.optJSONObject(i)
                                 ?: continue
 
                         val symbol =
@@ -358,23 +301,12 @@ class BinanceWebSocketManager {
                             continue
                         }
 
+                        // Remove leveraged token pairs
                         if (
-                            symbol.contains(
-                                "UPUSDT",
-                                true
-                            ) ||
-                            symbol.contains(
-                                "DOWNUSDT",
-                                true
-                            ) ||
-                            symbol.contains(
-                                "BULLUSDT",
-                                true
-                            ) ||
-                            symbol.contains(
-                                "BEARUSDT",
-                                true
-                            )
+                            symbol.contains("UPUSDT", true) ||
+                            symbol.contains("DOWNUSDT", true) ||
+                            symbol.contains("BULLUSDT", true) ||
+                            symbol.contains("BEARUSDT", true)
                         ) {
                             continue
                         }
@@ -399,17 +331,15 @@ class BinanceWebSocketManager {
 
                         result.add(
                             BinanceSeed(
-                                symbol,
-                                price,
-                                change,
-                                volume
+                                symbol = symbol,
+                                lastPrice = price,
+                                change24h = change,
+                                volume24h = volume
                             )
                         )
                     }
 
-                    result.sortedByDescending {
-                        it.volume24h
-                    }
+                    result
                 }
 
         } catch (_: Exception) {
@@ -418,15 +348,14 @@ class BinanceWebSocketManager {
         }
     }
 
-
-    // =================================================
+    // ========================================================
     // COINGECKO
-    // =================================================
+    // ========================================================
 
     private fun loadCoinGeckoMetaMap():
-            Map<String, CoinGeckoMeta> {
+        Map<String, CoinGeckoMeta> {
 
-        val output =
+        val result =
             mutableMapOf<String, CoinGeckoMeta>()
 
         fun fetchPage(page: Int) {
@@ -437,8 +366,7 @@ class BinanceWebSocketManager {
                     "&order=market_cap_desc" +
                     "&per_page=250" +
                     "&page=$page" +
-                    "&sparkline=false" +
-                    "&price_change_percentage=1h,24h,7d"
+                    "&sparkline=false"
 
             val request =
                 Request.Builder()
@@ -465,21 +393,21 @@ class BinanceWebSocketManager {
                             return
                         }
 
-                        val arr =
+                        val array =
                             JSONArray(body)
 
                         for (
-                            i in 0 until arr.length()
+                            i in 0 until array.length()
                         ) {
 
                             val coin =
-                                arr.optJSONObject(i)
+                                array.optJSONObject(i)
                                     ?: continue
 
                             val symbol =
-                                coin
-                                    .optString("symbol")
-                                    .uppercase()
+                                coin.optString(
+                                    "symbol"
+                                ).uppercase()
 
                             val name =
                                 coin.optString("name")
@@ -499,46 +427,20 @@ class BinanceWebSocketManager {
                                     Int.MAX_VALUE
                                 )
 
-                            val change1h =
-                                coin.optDouble(
-                                    "price_change_percentage_1h_in_currency",
-                                    0.0
-                                )
-
-                            val change7d =
-                                coin.optDouble(
-                                    "price_change_percentage_7d_in_currency",
-                                    0.0
-                                )
-
-                            val current =
-                                output[symbol]
+                            val old =
+                                result[symbol]
 
                             if (
-                                current == null ||
-                                rank <
-                                current.marketCapRank
+                                old == null ||
+                                rank < old.marketCapRank
                             ) {
 
-                                output[symbol] =
+                                result[symbol] =
                                     CoinGeckoMeta(
-                                        name =
-                                            name,
-
-                                        logo =
-                                            logo,
-
-                                        marketCap =
-                                            marketCap,
-
-                                        marketCapRank =
-                                            rank,
-
-                                        change1h =
-                                            change1h,
-
-                                        change7d =
-                                            change7d
+                                        name = name,
+                                        logo = logo,
+                                        marketCap = marketCap,
+                                        marketCapRank = rank
                                     )
                             }
                         }
@@ -548,21 +450,21 @@ class BinanceWebSocketManager {
             }
         }
 
+        // Top 1000 CoinGecko coins
         fetchPage(1)
         fetchPage(2)
         fetchPage(3)
         fetchPage(4)
 
-        return output
+        return result
     }
 
-
-    // =================================================
-    // GLOBAL STATS
-    // =================================================
+    // ========================================================
+    // GLOBAL MARKET DATA
+    // ========================================================
 
     private fun loadGlobalStats():
-            GlobalStats? {
+        GlobalStats? {
 
         val request =
             Request.Builder()
@@ -591,13 +493,13 @@ class BinanceWebSocketManager {
                         return null
                     }
 
-                    val root =
+                    val data =
                         JSONObject(body)
                             .optJSONObject("data")
                             ?: return null
 
                     val marketCap =
-                        root
+                        data
                             .optJSONObject(
                                 "total_market_cap"
                             )
@@ -608,7 +510,7 @@ class BinanceWebSocketManager {
                             ?: 0.0
 
                     val volume =
-                        root
+                        data
                             .optJSONObject(
                                 "total_volume"
                             )
@@ -618,48 +520,30 @@ class BinanceWebSocketManager {
                             )
                             ?: 0.0
 
-                    val percentages =
-                        root.optJSONObject(
+                    val dominance =
+                        data.optJSONObject(
                             "market_cap_percentage"
                         )
 
                     val btc =
-                        percentages
-                            ?.optDouble(
-                                "btc",
-                                0.0
-                            )
+                        dominance?.optDouble(
+                            "btc",
+                            0.0
+                        )
                             ?: 0.0
 
                     val eth =
-                        percentages
-                            ?.optDouble(
-                                "eth",
-                                0.0
-                            )
-                            ?: 0.0
-
-                    val change24h =
-                        root.optDouble(
-                            "market_cap_change_percentage_24h_usd",
+                        dominance?.optDouble(
+                            "eth",
                             0.0
                         )
+                            ?: 0.0
 
                     GlobalStats(
-                        totalMarketCap =
-                            marketCap,
-
-                        totalVolume =
-                            volume,
-
-                        btcDominance =
-                            btc,
-
-                        ethDominance =
-                            eth,
-
-                        marketCapChange24h =
-                            change24h
+                        totalMarketCap = marketCap,
+                        totalVolume = volume,
+                        btcDominance = btc,
+                        ethDominance = eth
                     )
                 }
 
@@ -669,10 +553,9 @@ class BinanceWebSocketManager {
         }
     }
 
-
-    // =================================================
-    // COINGECKO AUTO REFRESH
-    // =================================================
+    // ========================================================
+    // COINGECKO REFRESH
+    // ========================================================
 
     private fun startMetadataRefresh() {
 
@@ -691,9 +574,7 @@ class BinanceWebSocketManager {
                         10 * 60 * 1000L
                     )
 
-                    if (stopped) {
-                        break
-                    }
+                    if (stopped) break
 
                     val meta =
                         loadCoinGeckoMetaMap()
@@ -702,8 +583,7 @@ class BinanceWebSocketManager {
                         loadGlobalStats()
 
                     if (stats != null) {
-                        _global.value =
-                            stats
+                        _global.value = stats
                     }
 
                     synchronized(coinMap) {
@@ -719,21 +599,12 @@ class BinanceWebSocketManager {
 
                             coinMap[symbol] =
                                 coin.copy(
-
                                     name =
                                         m.name,
-
                                     logo =
                                         m.logo,
-
                                     marketCap =
-                                        m.marketCap,
-
-                                    change1h =
-                                        m.change1h,
-
-                                    change7d =
-                                        m.change7d
+                                        m.marketCap
                                 )
                         }
                     }
@@ -743,21 +614,9 @@ class BinanceWebSocketManager {
             }
     }
 
-
-    // =================================================
-    // WEBSOCKET
-    //
-    // IMPORTANT:
-    // Binance does NOT have:
-    // @ticker_1h
-    // @ticker_4h
-    // @ticker_1d
-    //
-    // Valid kline streams are:
-    // @kline_1h
-    // @kline_4h
-    // @kline_1d
-    // =================================================
+    // ========================================================
+    // WEBSOCKET BATCHES
+    // ========================================================
 
     private fun connectBatches(
         symbols: List<String>
@@ -766,6 +625,7 @@ class BinanceWebSocketManager {
         val unique =
             symbols.distinct()
 
+        // 180 coins per WebSocket connection
         unique
             .chunked(180)
             .forEachIndexed {
@@ -774,21 +634,22 @@ class BinanceWebSocketManager {
 
                 batches[index] =
                     StreamBatch(
-                        batchSymbols
+                        symbols = batchSymbols
                     )
 
                 openBatch(index)
             }
     }
 
+    // ========================================================
+    // OPEN WEBSOCKET
+    // ========================================================
 
     private fun openBatch(
         batchIndex: Int
     ) {
 
-        if (stopped) {
-            return
-        }
+        if (stopped) return
 
         val batch =
             batches[batchIndex]
@@ -804,36 +665,19 @@ class BinanceWebSocketManager {
 
         batch.socket = null
 
+        // ONLY ONE STREAM:
+        // symbol@ticker
+        //
+        // No:
+        // @ticker_1h
+        // @ticker_4h
+        // @ticker_1d
+
         val streams =
-            buildList {
-
-                batch.symbols.forEach { symbol ->
-
-                    val lower =
-                        symbol.lowercase()
-
-                    // LIVE PRICE
-                    add(
-                        "$lower@ticker"
-                    )
-
-                    // 1 HOUR
-                    add(
-                        "$lower@kline_1h"
-                    )
-
-                    // 4 HOURS
-                    add(
-                        "$lower@kline_4h"
-                    )
-
-                    // 1 DAY
-                    add(
-                        "$lower@kline_1d"
-                    )
+            batch.symbols
+                .joinToString("/") { symbol ->
+                    "${symbol.lowercase()}@ticker"
                 }
-
-            }.joinToString("/")
 
         val url =
             "wss://stream.binance.com:9443/stream?streams=$streams"
@@ -852,14 +696,19 @@ class BinanceWebSocketManager {
                         webSocket: WebSocket,
                         response: Response
                     ) {
-                        _status.value = "LIVE"
+
+                        _status.value =
+                            "LIVE"
                     }
 
                     override fun onMessage(
                         webSocket: WebSocket,
                         text: String
                     ) {
-                        parseCombinedMessage(text)
+
+                        parseTickerMessage(
+                            text
+                        )
                     }
 
                     override fun onFailure(
@@ -900,12 +749,11 @@ class BinanceWebSocketManager {
             )
     }
 
+    // ========================================================
+    // PARSE ONLY @TICKER
+    // ========================================================
 
-    // =================================================
-    // PARSE WEBSOCKET
-    // =================================================
-
-    private fun parseCombinedMessage(
+    private fun parseTickerMessage(
         text: String
     ) {
 
@@ -915,179 +763,70 @@ class BinanceWebSocketManager {
                 JSONObject(text)
 
             val data =
-                root.optJSONObject("data")
+                root.optJSONObject(
+                    "data"
+                )
                     ?: return
 
-            val stream =
-                root.optString("stream")
-
-            // -----------------------------------------
-            // NORMAL LIVE TICKER
-            // -----------------------------------------
+            val symbolFull =
+                data.optString("s")
 
             if (
-                stream.endsWith("@ticker")
+                !symbolFull.endsWith(
+                    "USDT",
+                    ignoreCase = true
+                )
             ) {
-
-                val fullSymbol =
-                    data.optString("s")
-
-                if (
-                    !fullSymbol.endsWith(
-                        "USDT",
-                        ignoreCase = true
-                    )
-                ) {
-                    return
-                }
-
-                val symbol =
-                    fullSymbol.removeSuffix(
-                        "USDT"
-                    )
-
-                val price =
-                    data.optString("c")
-                        .toDoubleOrNull()
-                        ?: return
-
-                val change =
-                    data.optString("P")
-                        .toDoubleOrNull()
-                        ?: 0.0
-
-                val volume =
-                    data.optString("q")
-                        .toDoubleOrNull()
-                        ?: 0.0
-
-                synchronized(coinMap) {
-
-                    val old =
-                        coinMap[symbol]
-                            ?: return
-
-                    coinMap[symbol] =
-                        old.copy(
-
-                            price =
-                                price,
-
-                            change24h =
-                                change,
-
-                            volume24h =
-                                volume
-                        )
-                }
-
-                schedulePublish()
-
                 return
             }
 
+            val symbol =
+                symbolFull.removeSuffix(
+                    "USDT"
+                )
 
-            // -----------------------------------------
-            // KLINE
-            // -----------------------------------------
+            val price =
+                data.optString(
+                    "c"
+                ).toDoubleOrNull()
+                    ?: return
 
-            if (
-                stream.contains("@kline_")
-            ) {
+            // Binance @ticker gives 24h percentage
+            val change24h =
+                data.optString(
+                    "P"
+                ).toDoubleOrNull()
+                    ?: 0.0
 
-                val kline =
-                    data.optJSONObject("k")
+            val volume24h =
+                data.optString(
+                    "q"
+                ).toDoubleOrNull()
+                    ?: 0.0
+
+            synchronized(coinMap) {
+
+                val old =
+                    coinMap[symbol]
                         ?: return
 
-                val fullSymbol =
-                    kline.optString("s")
-
-                if (
-                    !fullSymbol.endsWith(
-                        "USDT",
-                        ignoreCase = true
+                coinMap[symbol] =
+                    old.copy(
+                        price = price,
+                        change24h = change24h,
+                        volume24h = volume24h
                     )
-                ) {
-                    return
-                }
-
-                val symbol =
-                    fullSymbol.removeSuffix(
-                        "USDT"
-                    )
-
-                val interval =
-                    kline.optString("i")
-
-                val open =
-                    kline.optString("o")
-                        .toDoubleOrNull()
-                        ?: return
-
-                val close =
-                    kline.optString("c")
-                        .toDoubleOrNull()
-                        ?: return
-
-                if (open <= 0.0) {
-                    return
-                }
-
-                val change =
-                    ((close - open) / open) * 100.0
-
-                synchronized(coinMap) {
-
-                    val old =
-                        coinMap[symbol]
-                            ?: return
-
-                    val updated =
-                        when (interval) {
-
-                            "1h" ->
-                                old.copy(
-                                    price =
-                                        close,
-                                    change1h =
-                                        change
-                                )
-
-                            "4h" ->
-                                old.copy(
-                                    price =
-                                        close,
-                                    change4h =
-                                        change
-                                )
-
-                            "1d" ->
-                                old.copy(
-                                    price =
-                                        close,
-                                    change1d =
-                                        change
-                                )
-
-                            else ->
-                                old
-                        }
-
-                    coinMap[symbol] =
-                        updated
-                }
-
-                schedulePublish()
             }
+
+            schedulePublish()
 
         } catch (_: Exception) {
         }
     }
 
-
-    // =================================================
+    // ========================================================
     // PUBLISH
-    // =================================================
+    // ========================================================
 
     private fun schedulePublish() {
 
@@ -1100,24 +839,26 @@ class BinanceWebSocketManager {
         publishJob =
             scope.launch {
 
-                delay(120)
+                delay(100)
 
                 publishNow()
             }
     }
 
-
     private fun publishNow() {
 
         synchronized(coinMap) {
 
+            /*
+             * IMPORTANT:
+             * Ranking is ONLY based on market cap.
+             *
+             * Live Binance price/volume changes
+             * cannot change the ranking order.
+             */
+
             val list =
                 coinMap.values
-
-                    // IMPORTANT:
-                    // Ranking is MARKET CAP.
-                    //
-                    // Price updates cannot move rank.
                     .sortedWith(
                         compareByDescending<CryptoCoin> {
                             it.marketCap
@@ -1125,7 +866,6 @@ class BinanceWebSocketManager {
                             it.symbol
                         }
                     )
-
                     .mapIndexed {
                             index,
                             coin ->
@@ -1135,23 +875,19 @@ class BinanceWebSocketManager {
                         )
                     }
 
-            _coins.value =
-                list
+            _coins.value = list
         }
     }
 
-
-    // =================================================
+    // ========================================================
     // RECONNECT
-    // =================================================
+    // ========================================================
 
     private fun scheduleReconnect(
         batchIndex: Int
     ) {
 
-        if (stopped) {
-            return
-        }
+        if (stopped) return
 
         val batch =
             batches[batchIndex]
@@ -1169,17 +905,14 @@ class BinanceWebSocketManager {
                 delay(2000)
 
                 if (!stopped) {
-                    openBatch(
-                        batchIndex
-                    )
+                    openBatch(batchIndex)
                 }
             }
     }
 
-
-    // =================================================
+    // ========================================================
     // STOP
-    // =================================================
+    // ========================================================
 
     fun stop() {
 
@@ -1207,10 +940,9 @@ class BinanceWebSocketManager {
     }
 }
 
-
-// =====================================================
+// ============================================================
 // VIEW MODEL
-// =====================================================
+// ============================================================
 
 class CryptoViewModel : ViewModel() {
 
@@ -1238,10 +970,9 @@ class CryptoViewModel : ViewModel() {
     }
 }
 
-
-// =====================================================
+// ============================================================
 // MAIN ACTIVITY
-// =====================================================
+// ============================================================
 
 class MainActivity :
     ComponentActivity() {
@@ -1256,7 +987,15 @@ class MainActivity :
 
         setContent {
 
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme =
+                    lightColorScheme(
+                        primary =
+                            PurpleMimosa,
+                        secondary =
+                            PurpleMimosa
+                    )
+            ) {
 
                 CryptoExchangeApp()
             }
@@ -1264,10 +1003,9 @@ class MainActivity :
     }
 }
 
-
-// =====================================================
-// APP
-// =====================================================
+// ============================================================
+// MAIN APP
+// ============================================================
 
 @Composable
 fun CryptoExchangeApp(
@@ -1297,7 +1035,6 @@ fun CryptoExchangeApp(
             mutableIntStateOf(0)
         }
 
-
     ModalNavigationDrawer(
 
         drawerState =
@@ -1313,12 +1050,11 @@ fun CryptoExchangeApp(
 
                 Text(
                     "Crypto Exchange",
-
                     modifier =
-                        Modifier.padding(20.dp),
-
+                        Modifier.padding(
+                            20.dp
+                        ),
                     fontSize = 20.sp,
-
                     fontWeight =
                         FontWeight.Bold
                 )
@@ -1425,7 +1161,8 @@ fun CryptoExchangeApp(
                         NavigationBarItem(
 
                             selected =
-                                selectedTab == index,
+                                selectedTab ==
+                                    index,
 
                             onClick = {
                                 selectedTab =
@@ -1450,28 +1187,23 @@ fun CryptoExchangeApp(
         ) { padding ->
 
             Box(
-                Modifier.padding(padding)
+                Modifier.padding(
+                    padding
+                )
             ) {
 
                 when (selectedTab) {
 
-                    0 ->
-                        HomeScreen(
-                            coins =
-                                coins,
-
-                            status =
-                                status,
-
-                            global =
-                                global,
-
-                            onMenuClick = {
-                                scope.launch {
-                                    drawerState.open()
-                                }
+                    0 -> HomeScreen(
+                        coins = coins,
+                        status = status,
+                        global = global,
+                        onMenuClick = {
+                            scope.launch {
+                                drawerState.open()
                             }
-                        )
+                        }
+                    )
 
                     1 ->
                         PlaceholderScreen(
@@ -1498,22 +1230,16 @@ fun CryptoExchangeApp(
     }
 }
 
-
-// =====================================================
-// HOME
-// =====================================================
+// ============================================================
+// HOME SCREEN
+// ============================================================
 
 @Composable
 fun HomeScreen(
-
     coins: List<CryptoCoin>,
-
     status: String,
-
     global: GlobalStats,
-
     onMenuClick: () -> Unit
-
 ) {
 
     var balance by
@@ -1538,27 +1264,27 @@ fun HomeScreen(
             mutableIntStateOf(20)
         }
 
-
-    // -----------------------------------------------
-    // PRICE FLASH STATE
-    // -----------------------------------------------
-
+    // Price flash state
     val flashMap =
         remember {
             mutableStateMapOf<
                 String,
                 FlashState
-            >()
+                >()
         }
 
+    // Previous prices
     val previousPrices =
         remember {
             mutableStateMapOf<
                 String,
                 Double
-            >()
+                >()
         }
 
+    // ========================================================
+    // PRICE FLASH DETECTION
+    // ========================================================
 
     LaunchedEffect(coins) {
 
@@ -1588,10 +1314,8 @@ fun HomeScreen(
                     coin.symbol
                 ] = direction
 
-
                 launch {
 
-                    // EXACTLY 0.6 SECOND
                     delay(600)
 
                     if (
@@ -1613,10 +1337,9 @@ fun HomeScreen(
         }
     }
 
-
-    // -----------------------------------------------
+    // ========================================================
     // FILTER / SEARCH
-    // -----------------------------------------------
+    // ========================================================
 
     val displayCoins =
         remember(
@@ -1626,31 +1349,27 @@ fun HomeScreen(
             visibleCount
         ) {
 
-            var list =
-                coins
+            var list = coins
 
-            if (
-                search.isNotBlank()
-            ) {
+            if (search.isNotBlank()) {
 
-                val q =
+                val query =
                     search.trim()
 
                 list =
                     list.filter {
 
                         it.symbol.contains(
-                            q,
+                            query,
                             ignoreCase = true
                         ) ||
 
                         it.name.contains(
-                            q,
+                            query,
                             ignoreCase = true
                         )
                     }
             }
-
 
             list =
                 when (filter) {
@@ -1671,35 +1390,34 @@ fun HomeScreen(
                         }
                 }
 
-
             if (
                 search.isBlank()
             ) {
-
                 list.take(
                     visibleCount
                 )
-
             } else {
-
                 list.take(1000)
             }
         }
 
+    // ========================================================
+    // LIST
+    // ========================================================
 
     LazyColumn(
 
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(12.dp)
-
+                .padding(
+                    horizontal = 10.dp
+                )
     ) {
 
-
-        // =================================================
+        // ====================================================
         // HEADER
-        // =================================================
+        // ====================================================
 
         item {
 
@@ -1709,7 +1427,8 @@ fun HomeScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(
-                            bottom = 10.dp
+                            top = 8.dp,
+                            bottom = 8.dp
                         ),
 
                 verticalAlignment =
@@ -1725,14 +1444,17 @@ fun HomeScreen(
 
                     modifier =
                         Modifier
-                            .size(32.dp)
+                            .size(28.dp)
                             .clickable {
                                 onMenuClick()
-                            }
+                            },
+
+                    tint =
+                        PurpleMimosa
                 )
 
                 Spacer(
-                    Modifier.width(10.dp)
+                    Modifier.width(9.dp)
                 )
 
                 Column(
@@ -1741,20 +1463,14 @@ fun HomeScreen(
 
                     Text(
                         "Crypto Exchange",
-
-                        fontSize =
-                            17.sp,
-
+                        fontSize = 16.sp,
                         fontWeight =
                             FontWeight.Bold
                     )
 
                     Text(
                         "Binance Live + CoinGecko",
-
-                        fontSize =
-                            10.sp,
-
+                        fontSize = 9.sp,
                         color =
                             Color.Gray
                     )
@@ -1764,26 +1480,23 @@ fun HomeScreen(
 
                     "● $status",
 
-                    fontSize =
-                        10.sp,
+                    fontSize = 9.sp,
 
                     color =
                         if (
-                            status ==
-                            "LIVE"
+                            status == "LIVE"
                         ) {
-                            UpGreen
+                            PurpleMimosa
                         } else {
-                            Color(0xFFFF9800)
+                            Color.Gray
                         }
                 )
             }
         }
 
-
-        // =================================================
+        // ====================================================
         // DEMO BALANCE
-        // =================================================
+        // ====================================================
 
         item {
 
@@ -1792,13 +1505,17 @@ fun HomeScreen(
                 Modifier
                     .fillMaxWidth()
                     .padding(
-                        vertical = 5.dp
-                    )
+                        vertical = 4.dp
+                    ),
 
+                shape =
+                    RoundedCornerShape(
+                        14.dp
+                    )
             ) {
 
                 Column(
-                    Modifier.padding(14.dp)
+                    Modifier.padding(12.dp)
                 ) {
 
                     Row(
@@ -1816,26 +1533,19 @@ fun HomeScreen(
 
                             Text(
                                 "Demo Balance",
-
-                                fontSize =
-                                    10.sp,
-
+                                fontSize = 9.sp,
                                 color =
                                     Color.Gray
                             )
 
                             Text(
-
                                 "$" +
                                     String.format(
                                         Locale.US,
                                         "%,.2f",
                                         balance
                                     ),
-
-                                fontSize =
-                                    22.sp,
-
+                                fontSize = 20.sp,
                                 fontWeight =
                                     FontWeight.Bold
                             )
@@ -1849,8 +1559,14 @@ fun HomeScreen(
                             },
 
                             enabled =
-                                balance <= 100.0
+                                balance <= 100.0,
 
+                            colors =
+                                ButtonDefaults
+                                    .buttonColors(
+                                        containerColor =
+                                            PurpleMimosa
+                                    )
                         ) {
 
                             Text(
@@ -1858,81 +1574,13 @@ fun HomeScreen(
                             )
                         }
                     }
-
-                    Spacer(
-                        Modifier.height(12.dp)
-                    )
-
-                    val periods =
-                        listOf(
-                            "1h",
-                            "4h",
-                            "8h",
-                            "12h",
-                            "24h",
-                            "1d",
-                            "2d",
-                            "3d",
-                            "4d",
-                            "5d",
-                            "6d",
-                            "7d",
-                            "15d",
-                            "30d"
-                        )
-
-                    periods
-                        .chunked(4)
-                        .forEach { row ->
-
-                            Row(
-                                Modifier.fillMaxWidth()
-                            ) {
-
-                                row.forEach { period ->
-
-                                    Column(
-
-                                        Modifier.weight(
-                                            1f
-                                        ),
-
-                                        horizontalAlignment =
-                                            Alignment.CenterHorizontally
-
-                                    ) {
-
-                                        Text(
-                                            period,
-                                            fontSize =
-                                                10.sp,
-                                            color =
-                                                Color.Gray
-                                        )
-
-                                        Text(
-                                            "+0.00%",
-                                            fontSize =
-                                                11.sp,
-                                            color =
-                                                UpGreen
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(
-                                Modifier.height(7.dp)
-                            )
-                        }
                 }
             }
         }
 
-
-        // =================================================
+        // ====================================================
         // GLOBAL MARKET
-        // =================================================
+        // ====================================================
 
         item {
 
@@ -1941,29 +1589,29 @@ fun HomeScreen(
                 Modifier
                     .fillMaxWidth()
                     .padding(
-                        vertical = 5.dp
-                    )
+                        vertical = 4.dp
+                    ),
 
+                shape =
+                    RoundedCornerShape(
+                        14.dp
+                    )
             ) {
 
                 Column(
-                    Modifier.padding(14.dp)
+                    Modifier.padding(12.dp)
                 ) {
 
                     Text(
                         "Global Market",
-
                         fontWeight =
                             FontWeight.Bold,
-
-                        fontSize =
-                            12.sp
+                        fontSize = 12.sp
                     )
 
                     Spacer(
-                        Modifier.height(10.dp)
+                        Modifier.height(9.dp)
                     )
-
 
                     Row(
 
@@ -1973,36 +1621,31 @@ fun HomeScreen(
                             Arrangement.SpaceBetween
                     ) {
 
-                        GlobalMarketValue(
+                        MarketValue(
                             "Global MC",
                             formatLarge(
                                 global.totalMarketCap
-                            ),
-                            global.marketCapChange24h
+                            )
                         )
 
-                        GlobalMarketValue(
+                        MarketValue(
                             "24h Volume",
                             formatLarge(
                                 global.totalVolume
-                            ),
-                            null
+                            )
                         )
 
-                        GlobalMarketValue(
+                        MarketValue(
                             "BTC Dom.",
                             formatPct(
                                 global.btcDominance
-                            ),
-                            null
+                            )
                         )
                     }
-
 
                     Spacer(
                         Modifier.height(10.dp)
                     )
-
 
                     Row(
 
@@ -2012,125 +1655,98 @@ fun HomeScreen(
                             Arrangement.SpaceBetween
                     ) {
 
-                        GlobalMarketValue(
+                        MarketValue(
                             "ETH Dom.",
                             formatPct(
                                 global.ethDominance
-                            ),
-                            null
+                            )
                         )
 
-                        GlobalMarketValue(
+                        MarketValue(
                             "Alt Dom.",
                             formatPct(
                                 global.altDominance
-                            ),
-                            null
+                            )
                         )
 
-                        GlobalMarketValue(
-                            "24h Chg",
-                            formatPct(
-                                global.marketCapChange24h
-                            ),
-                            global.marketCapChange24h
-                        )
-                    }
-
-
-                    Spacer(
-                        Modifier.height(10.dp)
-                    )
-
-
-                    Row(
-
-                        Modifier.fillMaxWidth(),
-
-                        horizontalArrangement =
-                            Arrangement.SpaceBetween
-                    ) {
-
-                        GlobalMarketValue(
-                            "1h",
-                            formatPct(
-                                global.marketCapChange1h
-                            ),
-                            global.marketCapChange1h
-                        )
-
-                        GlobalMarketValue(
-                            "4h",
-                            formatPct(
-                                global.marketCapChange4h
-                            ),
-                            global.marketCapChange4h
-                        )
-
-                        GlobalMarketValue(
-                            "7d",
-                            formatPct(
-                                global.marketCapChange7d
-                            ),
-                            global.marketCapChange7d
+                        MarketValue(
+                            "BTC Price",
+                            findBtcPrice(
+                                coins
+                            )
                         )
                     }
                 }
             }
         }
 
-
-        // =================================================
+        // ====================================================
         // SEARCH
-        // =================================================
+        // ====================================================
 
         item {
 
+            Spacer(
+                Modifier.height(4.dp)
+            )
+
             OutlinedTextField(
 
-                value =
-                    search,
+                value = search,
 
                 onValueChange = {
-
                     search = it
-
                     visibleCount = 20
                 },
 
                 modifier =
                     Modifier.fillMaxWidth(),
 
-                singleLine =
-                    true,
+                singleLine = true,
 
                 shape =
-                    RoundedCornerShape(28.dp),
+                    RoundedCornerShape(
+                        30.dp
+                    ),
 
                 placeholder = {
                     Text(
-                        "Search crypto..."
+                        "Search crypto...",
+                        fontSize = 12.sp
                     )
                 },
 
                 leadingIcon = {
+
                     Icon(
                         Icons.Default.Search,
-                        null
+                        null,
+                        tint =
+                            PurpleMimosa
                     )
-                }
-            )
+                },
 
+                colors =
+                    OutlinedTextFieldDefaults
+                        .colors(
+                            focusedBorderColor =
+                                PurpleMimosa,
+                            unfocusedBorderColor =
+                                Color.LightGray,
+                            focusedLeadingIconColor =
+                                PurpleMimosa,
+                            cursorColor =
+                                PurpleMimosa
+                        )
+            )
 
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(7.dp)
             )
 
-
             Row(
-
                 horizontalArrangement =
-                    Arrangement.spacedBy(8.dp)
+                    Arrangement.spacedBy(7.dp)
             ) {
 
                 FilterChip(
@@ -2141,13 +1757,27 @@ fun HomeScreen(
                     onClick = {
 
                         filter = "ALL"
-
                         visibleCount = 20
                     },
 
                     label = {
-                        Text("All")
-                    }
+                        Text(
+                            "All",
+                            fontSize = 11.sp
+                        )
+                    },
+
+                    colors =
+                        FilterChipDefaults
+                            .filterChipColors(
+                                selectedContainerColor =
+                                    PurpleMimosa
+                                        .copy(
+                                            alpha = 0.15f
+                                        ),
+                                selectedLabelColor =
+                                    PurpleMimosa
+                            )
                 )
 
                 FilterChip(
@@ -2158,13 +1788,27 @@ fun HomeScreen(
                     onClick = {
 
                         filter = "GAINER"
-
                         visibleCount = 20
                     },
 
                     label = {
-                        Text("Gainer")
-                    }
+                        Text(
+                            "Gainer",
+                            fontSize = 11.sp
+                        )
+                    },
+
+                    colors =
+                        FilterChipDefaults
+                            .filterChipColors(
+                                selectedContainerColor =
+                                    PurpleMimosa
+                                        .copy(
+                                            alpha = 0.15f
+                                        ),
+                                selectedLabelColor =
+                                    PurpleMimosa
+                            )
                 )
 
                 FilterChip(
@@ -2175,42 +1819,52 @@ fun HomeScreen(
                     onClick = {
 
                         filter = "LOSER"
-
                         visibleCount = 20
                     },
 
                     label = {
-                        Text("Loser")
-                    }
+                        Text(
+                            "Loser",
+                            fontSize = 11.sp
+                        )
+                    },
+
+                    colors =
+                        FilterChipDefaults
+                            .filterChipColors(
+                                selectedContainerColor =
+                                    PurpleMimosa
+                                        .copy(
+                                            alpha = 0.15f
+                                        ),
+                                selectedLabelColor =
+                                    PurpleMimosa
+                            )
                 )
             }
 
-
             Spacer(
-                Modifier.height(6.dp)
+                Modifier.height(5.dp)
             )
-
 
             Text(
 
                 "${coins.size} live USDT markets",
 
-                fontSize =
-                    10.sp,
+                fontSize = 9.sp,
 
                 color =
                     Color.Gray
             )
         }
 
-
-        // =================================================
-        // COIN LIST
-        // =================================================
+        // ====================================================
+        // COINS
+        // ====================================================
 
         items(
 
-            displayCoins,
+            items = displayCoins,
 
             key = {
                 it.symbol
@@ -2220,8 +1874,7 @@ fun HomeScreen(
 
             CryptoRow(
 
-                coin =
-                    coin,
+                coin = coin,
 
                 flash =
                     flashMap[
@@ -2231,14 +1884,11 @@ fun HomeScreen(
             )
         }
 
-
-        // =================================================
+        // ====================================================
         // PAGINATION
-        // =================================================
+        // ====================================================
 
-        if (
-            search.isBlank()
-        ) {
+        if (search.isBlank()) {
 
             item {
 
@@ -2260,7 +1910,6 @@ fun HomeScreen(
                     OutlinedButton(
 
                         onClick = {
-
                             visibleCount =
                                 maxOf(
                                     20,
@@ -2269,15 +1918,19 @@ fun HomeScreen(
                         },
 
                         enabled =
-                            visibleCount > 20
+                            visibleCount > 20,
 
+                        shape =
+                            RoundedCornerShape(
+                                20.dp
+                            )
                     ) {
 
                         Text(
-                            "Previous"
+                            "Previous",
+                            fontSize = 11.sp
                         )
                     }
-
 
                     Text(
 
@@ -2286,26 +1939,35 @@ fun HomeScreen(
                             coins.size
                         )} shown",
 
-                        fontSize =
-                            11.sp
+                        fontSize = 10.sp
                     )
-
 
                     Button(
 
                         onClick = {
-
                             visibleCount += 50
                         },
 
                         enabled =
                             visibleCount <
-                                coins.size
+                                coins.size,
 
+                        colors =
+                            ButtonDefaults
+                                .buttonColors(
+                                    containerColor =
+                                        PurpleMimosa
+                                ),
+
+                        shape =
+                            RoundedCornerShape(
+                                20.dp
+                            )
                     ) {
 
                         Text(
-                            "Next 50"
+                            "Next 50",
+                            fontSize = 11.sp
                         )
                     }
                 }
@@ -2314,68 +1976,9 @@ fun HomeScreen(
     }
 }
 
-
-// =====================================================
-// GLOBAL MARKET VALUE
-// =====================================================
-
-@Composable
-fun GlobalMarketValue(
-
-    title: String,
-
-    value: String,
-
-    change: Double?
-
-) {
-
-    Column(
-        Modifier.width(92.dp)
-    ) {
-
-        Text(
-
-            title,
-
-            fontSize =
-                9.sp,
-
-            color =
-                Color.Gray
-        )
-
-        Text(
-
-            value,
-
-            fontSize =
-                11.sp,
-
-            fontWeight =
-                FontWeight.Bold
-        )
-
-        if (change != null) {
-
-            Text(
-
-                formatPct(change),
-
-                fontSize =
-                    9.sp,
-
-                color =
-                    changeColor(change)
-            )
-        }
-    }
-}
-
-
-// =====================================================
+// ============================================================
 // CRYPTO ROW
-// =====================================================
+// ============================================================
 
 @Composable
 fun CryptoRow(
@@ -2386,66 +1989,49 @@ fun CryptoRow(
 
 ) {
 
-    // -----------------------------------------------
-    // PRICE FLASH
-    //
-    // Up = GREEN
-    // Down = RED
-    // None = BLACK
-    //
-    // LaunchedEffect above removes it after 600ms.
-    // -----------------------------------------------
-
     val priceColor =
+
         when (flash) {
 
             FlashState.Up ->
-                UpGreen
+                PositiveGreen
 
             FlashState.Down ->
-                DownRed
+                NegativeRed
 
             FlashState.None ->
-                NormalPriceColor
+                MaterialTheme
+                    .colorScheme
+                    .onSurface
         }
-
 
     Row(
 
         Modifier
             .fillMaxWidth()
             .padding(
-                vertical = 7.dp
+                vertical = 6.dp
             ),
 
         verticalAlignment =
             Alignment.CenterVertically
     ) {
 
-
-        // -------------------------------------------
-        // RANK
-        // -------------------------------------------
-
+        // Rank
         Text(
 
             coin.rank.toString(),
 
-            fontSize =
-                9.sp,
+            fontSize = 8.sp,
 
             color =
                 Color.Gray,
 
             modifier =
-                Modifier.width(26.dp)
+                Modifier.width(22.dp)
         )
 
-
-        // -------------------------------------------
-        // LOGO
-        // -------------------------------------------
-
+        // Logo
         if (
             coin.logo.isNotBlank()
         ) {
@@ -2460,7 +2046,7 @@ fun CryptoRow(
 
                 modifier =
                     Modifier
-                        .size(28.dp)
+                        .size(24.dp)
                         .clip(
                             CircleShape
                         ),
@@ -2474,39 +2060,33 @@ fun CryptoRow(
             Box(
 
                 Modifier
-                    .size(28.dp)
+                    .size(24.dp)
                     .clip(
                         CircleShape
                     ),
 
                 contentAlignment =
                     Alignment.Center
-
             ) {
 
                 Text(
 
-                    coin.symbol.take(1),
+                    coin.symbol
+                        .take(1),
 
                     fontWeight =
                         FontWeight.Bold,
 
-                    fontSize =
-                        10.sp
+                    fontSize = 9.sp
                 )
             }
         }
 
-
         Spacer(
-            Modifier.width(8.dp)
+            Modifier.width(7.dp)
         )
 
-
-        // -------------------------------------------
-        // NAME + SYMBOL + CHANGES
-        // -------------------------------------------
-
+        // Name / symbol / 24h
         Column(
             Modifier.weight(1f)
         ) {
@@ -2518,67 +2098,45 @@ fun CryptoRow(
                 fontWeight =
                     FontWeight.Bold,
 
-                fontSize =
-                    12.sp
+                fontSize = 11.sp,
+
+                maxLines = 1
             )
 
             Text(
 
                 coin.symbol,
 
-                fontSize =
-                    9.sp,
+                fontSize = 8.sp,
 
                 color =
                     Color.Gray
             )
 
+            // ONLY 24H CHANGE
+            Text(
 
-            // ---------------------------------------
-            // INDIVIDUAL CHANGE COLORS
-            // ---------------------------------------
-
-            Row {
-
-                ChangeText(
-                    "1h",
-                    coin.change1h
-                )
-
-                Spacer(
-                    Modifier.width(6.dp)
-                )
-
-                ChangeText(
-                    "4h",
-                    coin.change4h
-                )
-
-                Spacer(
-                    Modifier.width(6.dp)
-                )
-
-                ChangeText(
-                    "24h",
+                formatPct(
                     coin.change24h
-                )
+                ),
 
-                Spacer(
-                    Modifier.width(6.dp)
-                )
+                fontSize = 9.sp,
 
-                ChangeText(
-                    "7d",
-                    coin.change7d
-                )
-            }
+                fontWeight =
+                    FontWeight.Medium,
+
+                color =
+                    if (
+                        coin.change24h >= 0
+                    ) {
+                        PositiveGreen
+                    } else {
+                        NegativeRed
+                    }
+            )
         }
 
-
-        // -------------------------------------------
-        // PRICE
-        // -------------------------------------------
-
+        // Price
         Column(
             horizontalAlignment =
                 Alignment.End
@@ -2593,15 +2151,11 @@ fun CryptoRow(
                 fontWeight =
                     FontWeight.Bold,
 
-                fontSize =
-                    11.sp,
+                fontSize = 10.sp,
 
                 color =
                     priceColor
             )
-
-
-            // 24H CHANGE
 
             Text(
 
@@ -2609,46 +2163,44 @@ fun CryptoRow(
                     coin.change24h
                 ),
 
-                fontSize =
-                    10.sp,
+                fontSize = 9.sp,
 
                 color =
-                    changeColor(
-                        coin.change24h
-                    )
+                    if (
+                        coin.change24h >= 0
+                    ) {
+                        PositiveGreen
+                    } else {
+                        NegativeRed
+                    }
             )
         }
     }
 
-
     HorizontalDivider(
-        thickness =
-            0.5.dp
+        thickness = 0.5.dp
     )
 }
 
-
-// =====================================================
-// CHANGE TEXT
-// =====================================================
+// ============================================================
+// MARKET VALUE
+// ============================================================
 
 @Composable
-fun ChangeText(
-
-    label: String,
-
-    value: Double
-
+fun MarketValue(
+    title: String,
+    value: String
 ) {
 
-    Row {
+    Column(
+        Modifier.width(92.dp)
+    ) {
 
         Text(
 
-            "$label ",
+            title,
 
-            fontSize =
-                9.sp,
+            fontSize = 8.sp,
 
             color =
                 Color.Gray
@@ -2656,46 +2208,44 @@ fun ChangeText(
 
         Text(
 
-            formatPct(value),
+            value,
 
-            fontSize =
-                9.sp,
-
-            color =
-                changeColor(value),
+            fontSize = 10.sp,
 
             fontWeight =
-                FontWeight.Medium
+                FontWeight.Bold
         )
     }
 }
 
+// ============================================================
+// BTC PRICE
+// ============================================================
 
-// =====================================================
-// CHANGE COLOR
-// =====================================================
+fun findBtcPrice(
+    coins: List<CryptoCoin>
+): String {
 
-fun changeColor(
-    value: Double
-): Color {
+    val btc =
+        coins.firstOrNull {
+            it.symbol == "BTC"
+        }
 
-    return when {
+    return if (btc != null) {
 
-        value > 0.0 ->
-            UpGreen
+        "$" +
+            formatPrice(
+                btc.price
+            )
 
-        value < 0.0 ->
-            DownRed
-
-        else ->
-            Color.Gray
+    } else {
+        "—"
     }
 }
 
-
-// =====================================================
+// ============================================================
 // PLACEHOLDER
-// =====================================================
+// ============================================================
 
 @Composable
 fun PlaceholderScreen(
@@ -2708,26 +2258,26 @@ fun PlaceholderScreen(
 
         contentAlignment =
             Alignment.Center
-
     ) {
 
         Text(
 
             title,
 
-            fontSize =
-                20.sp,
+            fontSize = 20.sp,
 
             fontWeight =
-                FontWeight.Bold
+                FontWeight.Bold,
+
+            color =
+                PurpleMimosa
         )
     }
 }
 
-
-// =====================================================
-// FORMAT PERCENT
-// =====================================================
+// ============================================================
+// FORMATTING
+// ============================================================
 
 fun formatPct(
     value: Double
@@ -2740,45 +2290,57 @@ fun formatPct(
     )
 }
 
-
-// =====================================================
-// FORMAT PRICE
-//
-// >= $1:
-//     65,700.06
-//
-// < $1:
-//     0.0536788
-//
-// Trailing zeroes removed.
-// =====================================================
+// ============================================================
+// PRICE FORMAT
+// ============================================================
 
 fun formatPrice(
     value: Double
 ): String {
 
-    if (value >= 1.0) {
-
-        return String.format(
-            Locale.US,
-            "%,.2f",
-            value
-        )
+    if (
+        value.isNaN() ||
+        value.isInfinite()
+    ) {
+        return "0"
     }
 
-    return String.format(
-        Locale.US,
-        "%.8f",
-        value
-    )
-        .trimEnd('0')
-        .trimEnd('.')
+    return when {
+
+        // $1 or above:
+        // 65,700.06348 -> 65,700.06
+        // 1.23456 -> 1.23
+        value >= 1.0 -> {
+
+            String.format(
+                Locale.US,
+                "%,.2f",
+                value
+            )
+        }
+
+        // Small values:
+        // 0.0536788 -> 0.0536788
+        value > 0.0 -> {
+
+            String.format(
+                Locale.US,
+                "%.8f",
+                value
+            )
+                .trimEnd('0')
+                .trimEnd('.')
+        }
+
+        else -> {
+            "0"
+        }
+    }
 }
 
-
-// =====================================================
-// FORMAT LARGE
-// =====================================================
+// ============================================================
+// LARGE NUMBER FORMAT
+// ============================================================
 
 fun formatLarge(
     value: Double
@@ -2822,7 +2384,8 @@ fun formatLarge(
             String.format(
                 Locale.US,
                 "%.2fK",
-                value / 1_000
+                value /
+                    1_000
             )
 
         else ->
