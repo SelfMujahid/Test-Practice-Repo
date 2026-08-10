@@ -449,16 +449,16 @@ class BinanceWebSocketManager {
     }
 
     private fun publishNow() {
-        synchronized(coinMap) {
-            val list = coinMap.values
-                .sortedByDescending { it.volume24h }
-                .mapIndexed { index, coin ->
-                    coin.copy(rank = index + 1)
-                }
+    synchronized(coinMap) {
+        val list = coinMap.values
+            .sortedByDescending { if (it.marketCap > 0) it.marketCap else -1.0 }
+            .mapIndexed { index, coin ->
+                coin.copy(rank = index + 1)
+            }
 
-            _coins.value = list
-        }
+        _coins.value = list
     }
+}
 
     private fun scheduleReconnect(batchIndex: Int) {
         if (stopped) return
