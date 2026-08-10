@@ -1,10 +1,9 @@
 package com.practice.cryptoapp
 
 import android.os.Bundle
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,12 +20,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.practice.cryptoapp.ui.TradeScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -133,10 +134,6 @@ class BinanceWebSocketManager {
             Job() + Dispatchers.IO
         )
 
-    // --------------------------------------------------------
-    // DATA
-    // --------------------------------------------------------
-
     private val allSeeds =
         mutableListOf<BinanceSeed>()
 
@@ -149,80 +146,39 @@ class BinanceWebSocketManager {
     private val coinMap =
         mutableMapOf<String, CryptoCoin>()
 
-    /*
-     * CoinGecko metadata cache.
-     *
-     * Contains:
-     * name
-     * logo
-     * market cap
-     * market-cap rank
-     */
     private val cgMetaCache =
         mutableMapOf<String, CoinGeckoMeta>()
 
-    private var activeWebSocket:
-            WebSocket? = null
+    private var activeWebSocket: WebSocket? = null
 
-    // --------------------------------------------------------
-    // JOBS
-    // --------------------------------------------------------
+    private var bootstrapJob: Job? = null
+    private var publishJob: Job? = null
+    private var metadataJob: Job? = null
+    private var reconnectJob: Job? = null
 
-    private var bootstrapJob:
-            Job? = null
-
-    private var publishJob:
-            Job? = null
-
-    private var metadataJob:
-            Job? = null
-
-    private var reconnectJob:
-            Job? = null
-
-    private var stopped =
-        false
-
-    // --------------------------------------------------------
-    // STATE
-    // --------------------------------------------------------
+    private var stopped = false
 
     private val _coins =
-        MutableStateFlow<List<CryptoCoin>>(
-            emptyList()
-        )
+        MutableStateFlow<List<CryptoCoin>>(emptyList())
 
-    val coins:
-            StateFlow<List<CryptoCoin>> =
+    val coins: StateFlow<List<CryptoCoin>> =
         _coins.asStateFlow()
 
     private val _status =
-        MutableStateFlow(
-            "LOADING"
-        )
+        MutableStateFlow("LOADING")
 
-    val status:
-            StateFlow<String> =
+    val status: StateFlow<String> =
         _status.asStateFlow()
 
     private val _global =
-        MutableStateFlow(
-            GlobalStats()
-        )
+        MutableStateFlow(GlobalStats())
 
-    val global:
-            StateFlow<GlobalStats> =
+    val global: StateFlow<GlobalStats> =
         _global.asStateFlow()
-
-    // ========================================================
-    // START
-    // ========================================================
 
     fun start() {
 
-        if (
-            bootstrapJob?.isActive == true
-        ) {
+        if (bootstrapJob?.isActive == true) {
             return
         }
 
@@ -234,110 +190,46 @@ class BinanceWebSocketManager {
             }
     }
 
-    // ========================================================
-    // BOOTSTRAP
-    // ========================================================
-
     private suspend fun bootstrap() {
 
-        _status.value =
-            "FETCHING"
-
-        // ----------------------------------------------------
-        // Binance market list
-        // ----------------------------------------------------
+        _status.value = "FETCHING"
 
         allSeeds.clear()
+        allSeeds.addAll(loadBinanceSeeds())
 
-        allSeeds.addAll(
-            loadBinanceSeeds()
-        )
-
-        if (
-            allSeeds.isEmpty()
-        ) {
-
-            _status.value =
-                "ERROR"
-
+        if (allSeeds.isEmpty()) {
+            _status.value = "ERROR"
             return
         }
 
-        // ----------------------------------------------------
-        // Global data
-        // ----------------------------------------------------
-
         loadGlobalStats()?.let {
-            _global.value =
-                it
+            _global.value = it
         }
 
-        // ----------------------------------------------------
-        // FIRST COINGECKO PAGE
-        //
-        // This page is loaded before the initial 20 coins
-        // so the first coins can immediately have:
-        // name + logo + market cap + rank.
-        // ----------------------------------------------------
+        fetchCoinGeckoPage(1)
 
-        fetchCoinGeckoPage(
-            page = 1
-        )
-
-        // ----------------------------------------------------
-        // Initial 20
-        // ----------------------------------------------------
-
-        loadMoreCoinsInternal(
-            20
-        )
+        loadMoreCoinsInternal(20)
 
         reconnectWebSocket()
 
-        _status.value =
-            "LIVE"
-
-        // ----------------------------------------------------
-        // Remaining CoinGecko metadata in background
-        //
-        // Pages 2-4 can contain another 750 coins.
-        // They do NOT block app startup.
-        // ----------------------------------------------------
+        _status.value = "LIVE"
 
         startBackgroundCoinGeckoLoading()
     }
 
-    // ========================================================
-    // LOAD MORE
-    // ========================================================
+    fun loadMoreCoins(count: Int) {
 
-    fun loadMoreCoins(
-        count: Int
-    ) {
-
-        if (stopped) {
-            return
-        }
+        if (stopped) return
 
         scope.launch {
 
-            loadMoreCoinsInternal(
-                count
-            )
+            loadMoreCoinsInternal(count)
 
             reconnectWebSocket()
         }
     }
 
-    private fun loadMoreCoinsInternal(
-        count: Int
-    ) {
-
-        /*
-         * Prefer coins that have a CoinGecko market-cap rank.
-         * If metadata is not available yet, keep Binance
-         * volume as a temporary fallback.
-         */
+    private fun loadMoreCoinsInternal(count: Int) {
 
         val pending =
             allSeeds
@@ -347,78 +239,52 @@ class BinanceWebSocketManager {
                 }
                 .sortedWith(
                     compareBy<BinanceSeed> {
-
                         cgMetaCache[
                             it.symbol
                                 .removeSuffix("USDT")
                                 .uppercase()
-                        ]?.marketCapRank
-                            ?: Int.MAX_VALUE
-
+                        ]?.marketCapRank ?: Int.MAX_VALUE
                     }.thenByDescending {
-
                         it.volume24h
                     }
                 )
                 .take(count)
                 .toList()
 
-        if (
-            pending.isEmpty()
-        ) {
+        if (pending.isEmpty()) {
             return
         }
 
-        synchronized(
-            coinMap
-        ) {
+        synchronized(coinMap) {
 
             pending.forEach { seed ->
-
-                addSeedToCoins(
-                    seed
-                )
+                addSeedToCoins(seed)
             }
 
             publishNow()
         }
     }
 
-    // ========================================================
-    // ADD COIN
-    // ========================================================
-
     private fun addSeedToCoins(
         seed: BinanceSeed
     ) {
 
         val base =
-            seed.symbol
-                .removeSuffix("USDT")
+            seed.symbol.removeSuffix("USDT")
 
         val meta =
-            cgMetaCache[
-                base.uppercase()
-            ]
+            cgMetaCache[base.uppercase()]
 
         coinMap[base] =
             CryptoCoin(
 
-                symbol =
-                    base,
+                symbol = base,
 
                 name =
-                    meta?.name
-                        ?: base,
+                    meta?.name ?: base,
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * Logo is now from CoinGecko.
-                 */
                 logo =
-                    meta?.logo
-                        ?: "",
+                    meta?.logo ?: "",
 
                 price =
                     seed.lastPrice,
@@ -430,48 +296,29 @@ class BinanceWebSocketManager {
                     seed.volume24h,
 
                 marketCap =
-                    meta?.marketCap
-                        ?: 0.0,
+                    meta?.marketCap ?: 0.0,
 
                 rank =
                     meta?.marketCapRank
                         ?: Int.MAX_VALUE
             )
 
-        loadedSymbols.add(
-            seed.symbol
-        )
+        loadedSymbols.add(seed.symbol)
 
-        if (
-            seed.symbol !in loadedOrder
-        ) {
-            loadedOrder.add(
-                seed.symbol
-            )
+        if (seed.symbol !in loadedOrder) {
+            loadedOrder.add(seed.symbol)
         }
     }
 
-    // ========================================================
-    // REMOVE COINS
-    // ========================================================
+    fun reduceCoins(count: Int) {
 
-    fun reduceCoins(
-        count: Int
-    ) {
-
-        if (stopped) {
-            return
-        }
+        if (stopped) return
 
         scope.launch {
 
-            synchronized(
-                coinMap
-            ) {
+            synchronized(coinMap) {
 
-                if (
-                    loadedOrder.size <= 20
-                ) {
+                if (loadedOrder.size <= 20) {
                     return@synchronized
                 }
 
@@ -480,28 +327,17 @@ class BinanceWebSocketManager {
                         loadedOrder.size - 20
                     )
 
-                repeat(
-                    removeCount
-                ) {
+                repeat(removeCount) {
 
                     val fullSymbol =
-                        loadedOrder
-                            .removeLastOrNull()
+                        loadedOrder.removeLastOrNull()
                             ?: return@repeat
 
                     val base =
-                        fullSymbol
-                            .removeSuffix(
-                                "USDT"
-                            )
+                        fullSymbol.removeSuffix("USDT")
 
-                    loadedSymbols.remove(
-                        fullSymbol
-                    )
-
-                    coinMap.remove(
-                        base
-                    )
+                    loadedSymbols.remove(fullSymbol)
+                    coinMap.remove(base)
                 }
 
                 publishNow()
@@ -511,39 +347,22 @@ class BinanceWebSocketManager {
         }
     }
 
-    // ========================================================
-    // SEARCH
-    // ========================================================
-
     fun searchAndLoadCoin(
         query: String
     ) {
 
-        if (
-            query.isBlank()
-        ) {
+        if (query.isBlank()) {
             return
         }
 
         val clean =
-            query
-                .trim()
-                .uppercase()
-
-        /*
-         * No API call here.
-         *
-         * Search uses the Binance market list already loaded
-         * at startup.
-         */
+            query.trim().uppercase()
 
         val match =
             allSeeds.firstOrNull {
 
                 it.symbol
-                    .removeSuffix(
-                        "USDT"
-                    )
+                    .removeSuffix("USDT")
                     .equals(
                         clean,
                         ignoreCase = true
@@ -557,85 +376,47 @@ class BinanceWebSocketManager {
             return
         }
 
-        synchronized(
-            coinMap
-        ) {
+        synchronized(coinMap) {
 
-            addSeedToCoins(
-                match
-            )
-
+            addSeedToCoins(match)
             publishNow()
         }
 
         reconnectWebSocket()
     }
 
-    // ========================================================
-    // BACKGROUND COINGECKO LOADING
-    // ========================================================
-
     private fun startBackgroundCoinGeckoLoading() {
 
-        if (
-            metadataJob?.isActive == true
-        ) {
+        if (metadataJob?.isActive == true) {
             return
         }
 
         metadataJob =
             scope.launch {
 
-                /*
-                 * Page 1 was already loaded during startup.
-                 *
-                 * Pages 2-4 are loaded in background.
-                 */
-                for (
-                    page in 2..4
-                ) {
+                for (page in 2..4) {
 
-                    if (
-                        stopped
-                    ) {
-                        break
-                    }
+                    if (stopped) break
 
-                    fetchCoinGeckoPage(
-                        page
-                    )
+                    fetchCoinGeckoPage(page)
 
-                    /*
-                     * Small pause between requests.
-                     */
                     delay(500)
 
-                    /*
-                     * Update currently loaded coins with
-                     * newly received CoinGecko metadata.
-                     */
                     updateLoadedCoinMetadata()
                 }
             }
     }
 
-    // ========================================================
-    // UPDATE LOADED COIN METADATA
-    // ========================================================
-
     private fun updateLoadedCoinMetadata() {
 
-        synchronized(
-            coinMap
-        ) {
+        synchronized(coinMap) {
 
             coinMap.keys.forEach { symbol ->
 
                 val meta =
                     cgMetaCache[
                         symbol.uppercase()
-                    ]
-                        ?: return@forEach
+                    ] ?: return@forEach
 
                 val old =
                     coinMap[symbol]
@@ -643,28 +424,16 @@ class BinanceWebSocketManager {
 
                 coinMap[symbol] =
                     old.copy(
-
-                        name =
-                            meta.name,
-
-                        logo =
-                            meta.logo,
-
-                        marketCap =
-                            meta.marketCap,
-
-                        rank =
-                            meta.marketCapRank
+                        name = meta.name,
+                        logo = meta.logo,
+                        marketCap = meta.marketCap,
+                        rank = meta.marketCapRank
                     )
             }
 
             publishNow()
         }
     }
-
-    // ========================================================
-    // COINGECKO PAGE
-    // ========================================================
 
     private fun fetchCoinGeckoPage(
         page: Int
@@ -686,15 +455,11 @@ class BinanceWebSocketManager {
                     .build()
 
             httpClient
-                .newCall(
-                    request
-                )
+                .newCall(request)
                 .execute()
                 .use { response ->
 
-                    if (
-                        !response.isSuccessful
-                    ) {
+                    if (!response.isSuccessful) {
                         return
                     }
 
@@ -703,51 +468,32 @@ class BinanceWebSocketManager {
                             ?.string()
                             .orEmpty()
 
-                    if (
-                        body.isBlank()
-                    ) {
+                    if (body.isBlank()) {
                         return
                     }
 
                     val array =
                         JSONArray(body)
 
-                    for (
-                        i in 0 until
-                                array.length()
-                    ) {
+                    for (i in 0 until array.length()) {
 
                         val coin =
-                            array.optJSONObject(
-                                i
-                            )
+                            array.optJSONObject(i)
                                 ?: continue
 
                         val symbol =
-                            coin
-                                .optString(
-                                    "symbol"
-                                )
+                            coin.optString("symbol")
                                 .uppercase()
 
-                        if (
-                            symbol.isBlank()
-                        ) {
+                        if (symbol.isBlank()) {
                             continue
                         }
 
                         val name =
-                            coin.optString(
-                                "name"
-                            )
+                            coin.optString("name")
 
-                        /*
-                         * THIS IS THE COINGECKO LOGO.
-                         */
                         val logo =
-                            coin.optString(
-                                "image"
-                            )
+                            coin.optString("image")
 
                         val marketCap =
                             coin.optDouble(
@@ -762,48 +508,27 @@ class BinanceWebSocketManager {
                             )
 
                         val old =
-                            cgMetaCache[
-                                symbol
-                            ]
+                            cgMetaCache[symbol]
 
                         if (
                             old == null ||
-                            marketCapRank <
-                            old.marketCapRank
+                            marketCapRank < old.marketCapRank
                         ) {
 
-                            cgMetaCache[
-                                symbol
-                            ] =
+                            cgMetaCache[symbol] =
                                 CoinGeckoMeta(
-
-                                    name =
-                                        name,
-
-                                    logo =
-                                        logo,
-
-                                    marketCap =
-                                        marketCap,
-
-                                    marketCapRank =
-                                        marketCapRank
+                                    name = name,
+                                    logo = logo,
+                                    marketCap = marketCap,
+                                    marketCapRank = marketCapRank
                                 )
                         }
                     }
                 }
 
         } catch (_: Exception) {
-            /*
-             * Binance data continues to work even if
-             * CoinGecko is unavailable/rate-limited.
-             */
         }
     }
-
-    // ========================================================
-    // BINANCE WEBSOCKET
-    // ========================================================
 
     private fun reconnectWebSocket() {
 
@@ -817,17 +542,6 @@ class BinanceWebSocketManager {
         reconnectJob?.cancel()
         reconnectJob = null
 
-        /*
-         * Close old socket.
-         *
-         * Only ONE type of stream is used:
-         * @ticker
-         *
-         * This provides:
-         * - current price
-         * - 24h percentage
-         * - 24h quote volume
-         */
         activeWebSocket?.close(
             1000,
             "Updating stream"
@@ -835,20 +549,12 @@ class BinanceWebSocketManager {
 
         activeWebSocket = null
 
-        /*
-         * Keep all active symbols in one combined stream.
-         */
         val streams =
-            synchronized(
-                loadedSymbols
-            ) {
+            synchronized(loadedSymbols) {
 
-                loadedSymbols
-                    .joinToString(
-                        "/"
-                    ) {
-                        "${it.lowercase()}@ticker"
-                    }
+                loadedSymbols.joinToString("/") {
+                    "${it.lowercase()}@ticker"
+                }
             }
 
         val url =
@@ -861,29 +567,21 @@ class BinanceWebSocketManager {
 
         activeWebSocket =
             wsClient.newWebSocket(
-
                 request,
-
-                object :
-                    WebSocketListener() {
+                object : WebSocketListener() {
 
                     override fun onOpen(
                         webSocket: WebSocket,
                         response: Response
                     ) {
-
-                        _status.value =
-                            "LIVE"
+                        _status.value = "LIVE"
                     }
 
                     override fun onMessage(
                         webSocket: WebSocket,
                         text: String
                     ) {
-
-                        parseTickerMessage(
-                            text
-                        )
+                        parseTickerMessage(text)
                     }
 
                     override fun onFailure(
@@ -892,12 +590,9 @@ class BinanceWebSocketManager {
                         response: Response?
                     ) {
 
-                        if (
-                            !stopped
-                        ) {
+                        if (!stopped) {
 
-                            activeWebSocket =
-                                null
+                            activeWebSocket = null
 
                             _status.value =
                                 "RECONNECTING"
@@ -912,12 +607,9 @@ class BinanceWebSocketManager {
                         reason: String
                     ) {
 
-                        if (
-                            !stopped
-                        ) {
+                        if (!stopped) {
 
-                            activeWebSocket =
-                                null
+                            activeWebSocket = null
 
                             _status.value =
                                 "RECONNECTING"
@@ -928,10 +620,6 @@ class BinanceWebSocketManager {
                 }
             )
     }
-
-    // ========================================================
-    // RECONNECT
-    // ========================================================
 
     private fun scheduleReconnect() {
 
@@ -947,17 +635,11 @@ class BinanceWebSocketManager {
 
                 delay(2500)
 
-                if (
-                    !stopped
-                ) {
+                if (!stopped) {
                     reconnectWebSocket()
                 }
             }
     }
-
-    // ========================================================
-    // PARSE BINANCE TICKER
-    // ========================================================
 
     private fun parseTickerMessage(
         text: String
@@ -966,20 +648,14 @@ class BinanceWebSocketManager {
         try {
 
             val root =
-                JSONObject(
-                    text
-                )
+                JSONObject(text)
 
             val data =
-                root.optJSONObject(
-                    "data"
-                )
+                root.optJSONObject("data")
                     ?: return
 
             val fullSymbol =
-                data.optString(
-                    "s"
-                )
+                data.optString("s")
 
             if (
                 !fullSymbol.endsWith(
@@ -991,64 +667,37 @@ class BinanceWebSocketManager {
             }
 
             val symbol =
-                fullSymbol
-                    .removeSuffix(
-                        "USDT"
-                    )
+                fullSymbol.removeSuffix("USDT")
 
             val price =
                 data
-                    .optString(
-                        "c"
-                    )
+                    .optString("c")
                     .toDoubleOrNull()
                     ?: return
 
-            /*
-             * Binance @ticker:
-             * P = 24h price change percent
-             */
             val change24h =
                 data
-                    .optString(
-                        "P"
-                    )
+                    .optString("P")
                     .toDoubleOrNull()
                     ?: 0.0
 
             val volume24h =
                 data
-                    .optString(
-                        "q"
-                    )
+                    .optString("q")
                     .toDoubleOrNull()
                     ?: 0.0
 
-            synchronized(
-                coinMap
-            ) {
+            synchronized(coinMap) {
 
                 val old =
                     coinMap[symbol]
                         ?: return
 
-                /*
-                 * ONLY live numeric fields are changed here.
-                 *
-                 * CoinGecko name/logo/marketCap/rank
-                 * remain untouched.
-                 */
                 coinMap[symbol] =
                     old.copy(
-
-                        price =
-                            price,
-
-                        change24h =
-                            change24h,
-
-                        volume24h =
-                            volume24h
+                        price = price,
+                        change24h = change24h,
+                        volume24h = volume24h
                     )
             }
 
@@ -1058,24 +707,15 @@ class BinanceWebSocketManager {
         }
     }
 
-    // ========================================================
-    // PUBLISH
-    // ========================================================
-
     private fun schedulePublish() {
 
-        if (
-            publishJob?.isActive == true
-        ) {
+        if (publishJob?.isActive == true) {
             return
         }
 
         publishJob =
             scope.launch {
 
-                /*
-                 * Batch many rapid Binance messages.
-                 */
                 delay(150)
 
                 publishNow()
@@ -1084,40 +724,22 @@ class BinanceWebSocketManager {
 
     private fun publishNow() {
 
-        synchronized(
-            coinMap
-        ) {
-
-            /*
-             * Rank is CoinGecko market-cap rank.
-             *
-             * We do NOT re-rank using live price/volume,
-             * so coins don't jump around every moment.
-             */
+        synchronized(coinMap) {
 
             val list =
                 coinMap
                     .values
                     .sortedWith(
-
                         compareBy<CryptoCoin> {
-
                             it.rank
-
                         }.thenBy {
-
                             it.symbol
                         }
                     )
 
-            _coins.value =
-                list
+            _coins.value = list
         }
     }
-
-    // ========================================================
-    // BINANCE INITIAL MARKET DATA
-    // ========================================================
 
     private fun loadBinanceSeeds():
         List<BinanceSeed> {
@@ -1132,15 +754,11 @@ class BinanceWebSocketManager {
         return try {
 
             httpClient
-                .newCall(
-                    request
-                )
+                .newCall(request)
                 .execute()
                 .use { response ->
 
-                    if (
-                        !response.isSuccessful
-                    ) {
+                    if (!response.isSuccessful) {
                         return emptyList()
                     }
 
@@ -1149,37 +767,26 @@ class BinanceWebSocketManager {
                             ?.string()
                             .orEmpty()
 
-                    if (
-                        body.isBlank()
-                    ) {
+                    if (body.isBlank()) {
                         return emptyList()
                     }
 
                     val array =
-                        JSONArray(
-                            body
-                        )
+                        JSONArray(body)
 
                     val result =
                         ArrayList<BinanceSeed>(
                             array.length()
                         )
 
-                    for (
-                        i in 0 until
-                                array.length()
-                    ) {
+                    for (i in 0 until array.length()) {
 
                         val obj =
-                            array.optJSONObject(
-                                i
-                            )
+                            array.optJSONObject(i)
                                 ?: continue
 
                         val symbol =
-                            obj.optString(
-                                "symbol"
-                            )
+                            obj.optString("symbol")
 
                         if (
                             !symbol.endsWith(
@@ -1213,9 +820,7 @@ class BinanceWebSocketManager {
 
                         val price =
                             obj
-                                .optString(
-                                    "lastPrice"
-                                )
+                                .optString("lastPrice")
                                 .toDoubleOrNull()
                                 ?: continue
 
@@ -1229,35 +834,20 @@ class BinanceWebSocketManager {
 
                         val volume =
                             obj
-                                .optString(
-                                    "quoteVolume"
-                                )
+                                .optString("quoteVolume")
                                 .toDoubleOrNull()
                                 ?: 0.0
 
                         result.add(
                             BinanceSeed(
-
-                                symbol =
-                                    symbol,
-
-                                lastPrice =
-                                    price,
-
-                                change24h =
-                                    change,
-
-                                volume24h =
-                                    volume
+                                symbol = symbol,
+                                lastPrice = price,
+                                change24h = change,
+                                volume24h = volume
                             )
                         )
                     }
 
-                    /*
-                     * Binance volume is used only as fallback
-                     * for coins whose CoinGecko market-cap metadata
-                     * isn't loaded yet.
-                     */
                     result.sortedByDescending {
                         it.volume24h
                     }
@@ -1268,10 +858,6 @@ class BinanceWebSocketManager {
             emptyList()
         }
     }
-
-    // ========================================================
-    // GLOBAL DATA
-    // ========================================================
 
     private fun loadGlobalStats():
         GlobalStats? {
@@ -1286,15 +872,11 @@ class BinanceWebSocketManager {
                     .build()
 
             httpClient
-                .newCall(
-                    request
-                )
+                .newCall(request)
                 .execute()
                 .use { response ->
 
-                    if (
-                        !response.isSuccessful
-                    ) {
+                    if (!response.isSuccessful) {
                         return null
                     }
 
@@ -1303,19 +885,13 @@ class BinanceWebSocketManager {
                             ?.string()
                             .orEmpty()
 
-                    if (
-                        body.isBlank()
-                    ) {
+                    if (body.isBlank()) {
                         return null
                     }
 
                     val data =
-                        JSONObject(
-                            body
-                        )
-                            .optJSONObject(
-                                "data"
-                            )
+                        JSONObject(body)
+                            .optJSONObject("data")
                             ?: return null
 
                     val totalMarketCap =
@@ -1362,16 +938,12 @@ class BinanceWebSocketManager {
                             ?: 0.0
 
                     GlobalStats(
-
                         totalMarketCap =
                             totalMarketCap,
-
                         totalVolume =
                             totalVolume,
-
                         btcDominance =
                             btc,
-
                         ethDominance =
                             eth
                     )
@@ -1383,9 +955,9 @@ class BinanceWebSocketManager {
         }
     }
 
-    // ========================================================
-    // STOP
-    // ========================================================
+    fun hasMoreCoins(): Boolean {
+        return loadedSymbols.size < allSeeds.size
+    }
 
     fun stop() {
 
@@ -1465,26 +1037,17 @@ class MainActivity :
 
                 var showWelcome by
                     remember {
-                        mutableStateOf(
-                            true
-                        )
+                        mutableStateOf(true)
                     }
 
-                LaunchedEffect(
-                    Unit
-                ) {
+                LaunchedEffect(Unit) {
 
-                    delay(
-                        2000
-                    )
+                    delay(2000)
 
-                    showWelcome =
-                        false
+                    showWelcome = false
                 }
 
-                if (
-                    showWelcome
-                ) {
+                if (showWelcome) {
 
                     WelcomeScreen()
 
@@ -1498,15 +1061,14 @@ class MainActivity :
 }
 
 // ============================================================
-// WELCOME SCREEN
+// WELCOME
 // ============================================================
 
 @Composable
 fun WelcomeScreen() {
 
     Box(
-        modifier =
-            Modifier.fillMaxSize()
+        Modifier.fillMaxSize()
     ) {
 
         Image(
@@ -1514,8 +1076,7 @@ fun WelcomeScreen() {
             painter =
                 painterResource(
                     id =
-                        R.drawable
-                            .welcome_image
+                        R.drawable.welcome_image
                 ),
 
             contentDescription =
@@ -1571,7 +1132,7 @@ sealed class NavItem(
 }
 
 // ============================================================
-// MAIN APP
+// APP
 // ============================================================
 
 @Composable
@@ -1582,9 +1143,7 @@ fun CryptoExchangeApp(
 
     var selectedTab by
         rememberSaveable {
-            mutableStateOf(
-                "Home"
-            )
+            mutableStateOf("Home")
         }
 
     val coins by
@@ -1617,16 +1176,14 @@ fun CryptoExchangeApp(
 
                         selected =
                             selectedTab ==
-                                    item.title,
+                                item.title,
 
                         onClick = {
-
                             selectedTab =
                                 item.title
                         },
 
                         icon = {
-
                             Icon(
                                 item.icon,
                                 contentDescription =
@@ -1635,21 +1192,17 @@ fun CryptoExchangeApp(
                         },
 
                         label = {
-
                             Text(
                                 item.title,
-                                fontSize =
-                                    10.sp
+                                fontSize = 10.sp
                             )
                         },
 
                         colors =
                             NavigationBarItemDefaults
                                 .colors(
-
                                     selectedIconColor =
                                         PurpleMimosa,
-
                                     selectedTextColor =
                                         PurpleMimosa
                                 )
@@ -1661,30 +1214,27 @@ fun CryptoExchangeApp(
     ) { padding ->
 
         Box(
-            Modifier.padding(
-                padding
-            )
+            Modifier.padding(padding)
         ) {
 
-            when (
-                selectedTab
-            ) {
+            when (selectedTab) {
 
                 "Home" ->
 
                     HomeScreen(
                         coins =
                             coins,
-
                         status =
                             status,
-
                         global =
                             global,
-
                         vm =
                             vm
                     )
+
+                "Trade" ->
+
+                    TradeScreen()
 
                 else ->
 
@@ -1698,7 +1248,7 @@ fun CryptoExchangeApp(
 }
 
 // ============================================================
-// DUMMY TABS
+// DUMMY
 // ============================================================
 
 @Composable
@@ -1716,7 +1266,6 @@ fun DummyTabScreen(
             "$title Screen Coming Soon",
             fontSize =
                 16.sp,
-
             fontWeight =
                 FontWeight.Bold
         )
@@ -1752,41 +1301,31 @@ fun HomeScreen(
 
     var filter by
         rememberSaveable {
-            mutableStateOf(
-                "ALL"
-            )
+            mutableStateOf("ALL")
         }
 
     var selectedTimeframe by
         rememberSaveable {
-            mutableStateOf(
-                "24h"
-            )
+            mutableStateOf("24h")
         }
 
     val flashMap =
         remember {
             mutableStateMapOf<
-                    String,
-                    FlashState
-                    >()
+                String,
+                FlashState
+            >()
         }
 
     val previousPrices =
         remember {
             mutableStateMapOf<
-                    String,
-                    Double
-                    >()
+                String,
+                Double
+            >()
         }
 
-    // ========================================================
-    // PRICE FLASH
-    // ========================================================
-
-    LaunchedEffect(
-        coins
-    ) {
+    LaunchedEffect(coins) {
 
         coins.forEach { coin ->
 
@@ -1816,10 +1355,7 @@ fun HomeScreen(
 
                 launch {
 
-                    // 0.6 second
-                    delay(
-                        600
-                    )
+                    delay(600)
 
                     if (
                         flashMap[
@@ -1840,37 +1376,18 @@ fun HomeScreen(
         }
     }
 
-    // ========================================================
-    // SEARCH
-    // ========================================================
+    LaunchedEffect(search) {
 
-    LaunchedEffect(
-        search
-    ) {
-
-        if (
-            search.isBlank()
-        ) {
+        if (search.isBlank()) {
             return@LaunchedEffect
         }
 
-        delay(
-            500
+        delay(500)
+
+        vm.manager.searchAndLoadCoin(
+            search
         )
-
-        /*
-         * Exact-symbol search is checked locally.
-         * No HTTP API request is made here.
-         */
-        vm.manager
-            .searchAndLoadCoin(
-                search
-            )
     }
-
-    // ========================================================
-    // DISPLAY LIST
-    // ========================================================
 
     val displayCoins =
         remember(
@@ -1882,9 +1399,7 @@ fun HomeScreen(
             var list =
                 coins
 
-            if (
-                search.isNotBlank()
-            ) {
+            if (search.isNotBlank()) {
 
                 val query =
                     search.trim()
@@ -1896,44 +1411,33 @@ fun HomeScreen(
                             query,
                             ignoreCase = true
                         ) ||
-
-                        it.name.contains(
-                            query,
-                            ignoreCase = true
-                        )
+                            it.name.contains(
+                                query,
+                                ignoreCase = true
+                            )
                     }
             }
 
-            when (
-                filter
-            ) {
+            when (filter) {
 
                 "GAINER" ->
-
                     list.sortedByDescending {
                         it.change24h
                     }
 
                 "LOSER" ->
-
                     list.sortedBy {
                         it.change24h
                     }
 
                 else ->
-
                     list.sortedBy {
                         it.rank
                     }
             }
         }
 
-    // ========================================================
-    // UI
-    // ========================================================
-
     LazyColumn(
-
         modifier =
             Modifier
                 .fillMaxSize()
@@ -1944,26 +1448,19 @@ fun HomeScreen(
 
         item {
 
-            HeaderSection(
-                status
-            )
+            HeaderSection()
 
             BalanceCard(
-
                 balance =
                     balance,
-
                 initialBalance =
                     initialBalance,
-
                 selectedTimeframe =
                     selectedTimeframe,
-
                 onTimeframeSelected = {
                     selectedTimeframe =
                         it
                 },
-
                 onReset = {
                     balance =
                         initialBalance
@@ -1975,9 +1472,7 @@ fun HomeScreen(
             )
 
             Spacer(
-                Modifier.height(
-                    8.dp
-                )
+                Modifier.height(8.dp)
             )
 
             OutlinedTextField(
@@ -2007,7 +1502,6 @@ fun HomeScreen(
                 },
 
                 leadingIcon = {
-
                     Icon(
                         Icons.Default.Search,
                         null,
@@ -2018,53 +1512,39 @@ fun HomeScreen(
             )
 
             Spacer(
-                Modifier.height(
-                    8.dp
-                )
+                Modifier.height(8.dp)
             )
 
             FilterChipsSection(
                 filter
             ) {
-
-                filter =
-                    it
+                filter = it
             }
 
             Spacer(
-                Modifier.height(
-                    4.dp
-                )
+                Modifier.height(4.dp)
             )
 
             Text(
-
                 "${coins.size} Active Coins Loaded",
-
                 fontSize =
                     10.sp,
-
                 color =
                     Color.Gray
             )
         }
 
         items(
-
             items =
                 displayCoins,
-
             key = {
                 it.symbol
             }
-
         ) { coin ->
 
             CryptoRow(
-
                 coin =
                     coin,
-
                 flash =
                     flashMap[
                         coin.symbol
@@ -2073,37 +1553,27 @@ fun HomeScreen(
             )
         }
 
-        if (
-            search.isBlank()
-        ) {
+        if (search.isBlank()) {
 
             item {
 
                 Row(
-
                     Modifier
                         .fillMaxWidth()
                         .padding(
                             vertical = 14.dp
                         ),
-
                     horizontalArrangement =
                         Arrangement.SpaceEvenly
                 ) {
 
                     Button(
-
                         onClick = {
-
                             vm.manager
-                                .reduceCoins(
-                                    50
-                                )
+                                .reduceCoins(50)
                         },
-
                         enabled =
                             coins.size > 20,
-
                         colors =
                             ButtonDefaults
                                 .buttonColors(
@@ -2111,26 +1581,19 @@ fun HomeScreen(
                                         Color.DarkGray
                                 )
                     ) {
-
                         Text(
                             "Previous 50"
                         )
                     }
 
                     Button(
-
                         onClick = {
-
                             vm.manager
-                                .loadMoreCoins(
-                                    50
-                                )
+                                .loadMoreCoins(50)
                         },
-
                         enabled =
                             vm.manager
                                 .hasMoreCoins(),
-
                         colors =
                             ButtonDefaults
                                 .buttonColors(
@@ -2138,7 +1601,6 @@ fun HomeScreen(
                                         PurpleMimosa
                                 )
                     ) {
-
                         Text(
                             "Next 50"
                         )
@@ -2150,31 +1612,6 @@ fun HomeScreen(
 }
 
 // ============================================================
-// MORE COINS AVAILABLE
-// ============================================================
-
-fun BinanceWebSocketManager.hasMoreCoins():
-        Boolean {
-
-    /*
-     * This is a public helper for the Next button.
-     */
-    return getLoadedCount() < getTotalSeedCount()
-}
-
-fun BinanceWebSocketManager.getLoadedCount():
-        Int {
-
-    return getLoadedCoinCount()
-}
-
-fun BinanceWebSocketManager.getTotalSeedCount():
-        Int {
-
-    return getSeedCount()
-}
-
-// ============================================================
 // HEADER
 // ============================================================
 
@@ -2182,13 +1619,11 @@ fun BinanceWebSocketManager.getTotalSeedCount():
 fun HeaderSection() {
 
     Row(
-
         Modifier
             .fillMaxWidth()
             .padding(
                 vertical = 8.dp
             ),
-
         verticalAlignment =
             Alignment.CenterVertically
     ) {
@@ -2201,10 +1636,10 @@ fun HeaderSection() {
                 "Test Exchange",
                 fontSize =
                     16.sp,
-
                 fontWeight =
                     FontWeight.Bold
             )
+        }
     }
 }
 
@@ -2214,31 +1649,21 @@ fun HeaderSection() {
 
 @Composable
 fun BalanceCard(
-
     balance: Double,
-
     initialBalance: Double,
-
     selectedTimeframe: String,
-
     onTimeframeSelected:
         (String) -> Unit,
-
     onReset: () -> Unit
 ) {
 
     var expanded by
         remember {
-            mutableStateOf(
-                false
-            )
+            mutableStateOf(false)
         }
 
     val factor =
-        when (
-            selectedTimeframe
-        ) {
-
+        when (selectedTimeframe) {
             "1h" -> 0.1
             "2h" -> 0.2
             "3h" -> 0.3
@@ -2273,13 +1698,11 @@ fun BalanceCard(
         ) * factor
 
     Card(
-
         Modifier
             .fillMaxWidth()
             .padding(
                 vertical = 4.dp
             ),
-
         shape =
             RoundedCornerShape(
                 12.dp
@@ -2287,17 +1710,11 @@ fun BalanceCard(
     ) {
 
         Row(
-
             Modifier
-                .padding(
-                    12.dp
-                )
+                .padding(12.dp)
                 .fillMaxWidth(),
-
             horizontalArrangement =
-                Arrangement
-                    .SpaceBetween,
-
+                Arrangement.SpaceBetween,
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
@@ -2308,23 +1725,19 @@ fun BalanceCard(
                     "Demo Balance",
                     fontSize =
                         9.sp,
-
                     color =
                         Color.Gray
                 )
 
                 Text(
-
                     "$" +
                         String.format(
                             Locale.US,
                             "%,.2f",
                             balance
                         ),
-
                     fontSize =
                         18.sp,
-
                     fontWeight =
                         FontWeight.Bold
                 )
@@ -2337,11 +1750,9 @@ fun BalanceCard(
                     Box {
 
                         TextButton(
-
                             onClick = {
                                 expanded = true
                             },
-
                             contentPadding =
                                 PaddingValues(
                                     0.dp
@@ -2349,33 +1760,26 @@ fun BalanceCard(
                         ) {
 
                             Text(
-
                                 "PNL ($selectedTimeframe) ▼: ",
-
                                 fontSize =
                                     10.sp,
-
                                 color =
                                     PurpleMimosa
                             )
                         }
 
                         DropdownMenu(
-
                             expanded =
                                 expanded,
-
                             onDismissRequest = {
                                 expanded = false
                             }
-
                         ) {
 
                             TIMEFRAMES.forEach {
                                     timeframe ->
 
                                 DropdownMenuItem(
-
                                     text = {
                                         Text(
                                             timeframe,
@@ -2383,13 +1787,10 @@ fun BalanceCard(
                                                 12.sp
                                         )
                                     },
-
                                     onClick = {
-
                                         onTimeframeSelected(
                                             timeframe
                                         )
-
                                         expanded =
                                             false
                                     }
@@ -2399,26 +1800,19 @@ fun BalanceCard(
                     }
 
                     Text(
-
                         formatPct(
                             pnlPercent
                         ),
-
                         fontSize =
                             10.sp,
-
                         fontWeight =
                             FontWeight.Bold,
-
                         color =
                             if (
                                 pnlPercent >= 0
                             ) {
-
                                 PositiveGreen
-
                             } else {
-
                                 NegativeRed
                             }
                     )
@@ -2426,10 +1820,8 @@ fun BalanceCard(
             }
 
             Button(
-
                 onClick =
                     onReset,
-
                 colors =
                     ButtonDefaults
                         .buttonColors(
@@ -2456,13 +1848,11 @@ fun GlobalStatsCard(
 ) {
 
     Card(
-
         Modifier
             .fillMaxWidth()
             .padding(
                 vertical = 4.dp
             ),
-
         shape =
             RoundedCornerShape(
                 12.dp
@@ -2477,10 +1867,8 @@ fun GlobalStatsCard(
 
             Text(
                 "Global Market Overview",
-
                 fontWeight =
                     FontWeight.Bold,
-
                 fontSize =
                     11.sp
             )
@@ -2492,9 +1880,7 @@ fun GlobalStatsCard(
             )
 
             Row(
-
                 Modifier.fillMaxWidth(),
-
                 horizontalArrangement =
                     Arrangement.SpaceBetween
             ) {
@@ -2528,9 +1914,7 @@ fun GlobalStatsCard(
             )
 
             Row(
-
                 Modifier.fillMaxWidth(),
-
                 horizontalArrangement =
                     Arrangement.SpaceBetween
             ) {
@@ -2564,15 +1948,12 @@ fun GlobalStatsCard(
 
 @Composable
 fun FilterChipsSection(
-
     selectedFilter: String,
-
     onSelect:
         (String) -> Unit
 ) {
 
     Row(
-
         horizontalArrangement =
             Arrangement.spacedBy(
                 8.dp
@@ -2601,12 +1982,10 @@ fun FilterChipsSection(
                     CircleShape,
 
                 label = {
-
                     Text(
                         filter,
                         fontSize =
                             11.sp,
-
                         fontWeight =
                             FontWeight.Medium
                     )
@@ -2615,10 +1994,8 @@ fun FilterChipsSection(
                 colors =
                     FilterChipDefaults
                         .filterChipColors(
-
                             selectedContainerColor =
                                 PurpleMimosa,
-
                             selectedLabelColor =
                                 Color.White
                         )
@@ -2633,16 +2010,12 @@ fun FilterChipsSection(
 
 @Composable
 fun CryptoRow(
-
     coin: CryptoCoin,
-
     flash: FlashState
 ) {
 
     val priceColor =
-        when (
-            flash
-        ) {
+        when (flash) {
 
             FlashState.Up ->
                 PositiveGreen
@@ -2657,95 +2030,69 @@ fun CryptoRow(
         }
 
     Row(
-
         Modifier
             .fillMaxWidth()
             .padding(
                 vertical = 8.dp
             ),
-
         verticalAlignment =
             Alignment.CenterVertically
     ) {
 
-        // ----------------------------------------------------
-        // RANK
-        // ----------------------------------------------------
-
         Text(
-
             coin.rank
                 .takeIf {
                     it != Int.MAX_VALUE
                 }
                 ?.toString()
                 ?: "—",
-
             fontSize =
                 9.sp,
-
             color =
                 Color.Gray,
-
             modifier =
                 Modifier.width(
                     24.dp
                 )
         )
 
-        // ----------------------------------------------------
-        // COINGECKO LOGO
-        // ----------------------------------------------------
-
         if (
             coin.logo.isNotBlank()
         ) {
 
             AsyncImage(
-
                 model =
                     coin.logo,
-
                 contentDescription =
                     coin.name,
-
                 modifier =
                     Modifier
                         .size(26.dp)
                         .clip(
                             CircleShape
                         ),
-
                 contentScale =
                     ContentScale.Crop
             )
 
         } else {
 
-            /*
-             * Metadata may not have arrived yet.
-             */
             Box(
-
                 Modifier
                     .size(26.dp)
                     .clip(
                         CircleShape
                     ),
-
                 contentAlignment =
                     Alignment.Center
             ) {
 
                 Text(
-
                     coin.symbol.take(
                         1
                     ),
-
                     fontWeight =
                         FontWeight.Bold,
-
                     fontSize =
                         10.sp
                 )
@@ -2758,10 +2105,6 @@ fun CryptoRow(
             )
         )
 
-        // ----------------------------------------------------
-        // NAME / SYMBOL
-        // ----------------------------------------------------
-
         Column(
             Modifier.weight(
                 1f
@@ -2769,82 +2112,57 @@ fun CryptoRow(
         ) {
 
             Text(
-
                 coin.name,
-
                 fontWeight =
                     FontWeight.Bold,
-
                 fontSize =
                     12.sp,
-
                 maxLines =
                     1
             )
 
             Text(
-
                 coin.symbol,
-
                 fontSize =
                     9.sp,
-
                 color =
                     Color.Gray,
-
                 maxLines =
                     1
             )
         }
 
-        // ----------------------------------------------------
-        // PRICE + SINGLE 24H
-        // ----------------------------------------------------
-
         Column(
-
             horizontalAlignment =
                 Alignment.End
         ) {
 
             Text(
-
                 formatPrice(
                     coin.price
                 ),
-
                 fontWeight =
                     FontWeight.Bold,
-
                 fontSize =
                     11.sp,
-
                 color =
                     priceColor
             )
 
             Text(
-
                 formatPct(
                     coin.change24h
                 ),
-
                 fontSize =
                     10.sp,
-
                 fontWeight =
                     FontWeight.Medium,
-
                 color =
                     if (
-                        coin.change24h >=
-                        0
+                        coin.change24h >= 0
                     ) {
-
                         PositiveGreen
-
                     } else {
-
                         NegativeRed
                     }
             )
@@ -2870,23 +2188,17 @@ fun MarketValue(
     Column {
 
         Text(
-
             title,
-
             fontSize =
                 8.sp,
-
             color =
                 Color.Gray
         )
 
         Text(
-
             value,
-
             fontSize =
                 10.sp,
-
             fontWeight =
                 FontWeight.Bold
         )
@@ -2916,7 +2228,6 @@ fun formatPrice(
         value.isNaN() ||
         value.isInfinite()
     ) {
-
         return "0"
     }
 
@@ -2995,64 +2306,5 @@ fun formatLarge(
                 "%.2f",
                 value
             )
-    }
-}
-
-// ============================================================
-// MANAGER COUNT HELPERS
-// ============================================================
-
-private fun BinanceWebSocketManager.getLoadedCoinCount():
-    Int {
-
-    return try {
-        val field =
-            BinanceWebSocketManager::class
-                .java
-                .getDeclaredField(
-                    "loadedSymbols"
-                )
-
-        field.isAccessible = true
-
-        @Suppress("UNCHECKED_CAST")
-        val set =
-            field.get(
-                this
-            ) as MutableSet<String>
-
-        set.size
-
-    } catch (_: Exception) {
-
-        0
-    }
-}
-
-private fun BinanceWebSocketManager.getSeedCount():
-    Int {
-
-    return try {
-
-        val field =
-            BinanceWebSocketManager::class
-                .java
-                .getDeclaredField(
-                    "allSeeds"
-                )
-
-        field.isAccessible = true
-
-        @Suppress("UNCHECKED_CAST")
-        val list =
-            field.get(
-                this
-            ) as MutableList<BinanceSeed>
-
-        list.size
-
-    } catch (_: Exception) {
-
-        0
     }
 }
