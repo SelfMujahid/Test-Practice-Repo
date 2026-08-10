@@ -3,14 +3,15 @@ package com.practice.cryptoapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -94,7 +95,7 @@ private data class BinanceSeed(
 enum class FlashState { None, Up, Down }
 
 // ============================================================
-// OPTIMIZED WEBSOCKET & ON-DEMAND DATA MANAGER
+// WEBSOCKET & ON-DEMAND DATA MANAGER
 // ============================================================
 
 class BinanceWebSocketManager {
@@ -140,11 +141,9 @@ class BinanceWebSocketManager {
     private suspend fun bootstrap() {
         _status.value = "FETCHING"
 
-        // Single App Startup Request for Global Stats & Top Coins Meta
         loadGlobalStats()?.let { _global.value = it }
         fetchCoinGeckoMetaForPage(1)
 
-        // Load All Available Binance Seeds
         allSeeds.clear()
         allSeeds.addAll(loadBinanceSeeds())
 
@@ -153,7 +152,6 @@ class BinanceWebSocketManager {
             return
         }
 
-        // Initialize Default Top 20 Coins
         loadMoreCoins(20)
         _status.value = "LIVE"
     }
@@ -163,12 +161,11 @@ class BinanceWebSocketManager {
             val pendingSeeds = allSeeds.filter { it.symbol !in loadedSymbols }.take(count)
             if (pendingSeeds.isEmpty()) return@launch
 
-            // Check if meta data is missing for any coin and fetch on demand
             val missingMeta = pendingSeeds.map { it.symbol.removeSuffix("USDT").uppercase() }
                 .filter { it !in cgMetaCache }
 
             if (missingMeta.isNotEmpty()) {
-                fetchCoinGeckoMetaOnDemand(missingMeta)
+                fetchCoinGeckoMetaOnDemand()
             }
 
             synchronized(coinMap) {
@@ -205,7 +202,7 @@ class BinanceWebSocketManager {
             scope.launch {
                 val base = match.symbol.removeSuffix("USDT")
                 if (base.uppercase() !in cgMetaCache) {
-                    fetchCoinGeckoMetaOnDemand(listOf(base.uppercase()))
+                    fetchCoinGeckoMetaOnDemand()
                 }
 
                 synchronized(coinMap) {
@@ -320,7 +317,6 @@ class BinanceWebSocketManager {
         } catch (_: Exception) { emptyList() }
     }
 
-    // Single Startup Request for Top Coins Metadata
     private fun fetchCoinGeckoMetaForPage(page: Int) {
         val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false"
         try {
@@ -342,10 +338,7 @@ class BinanceWebSocketManager {
         } catch (_: Exception) {}
     }
 
-    // On-Demand Meta Request when new coins are requested
-    private fun fetchCoinGeckoMetaOnDemand(symbols: List<String>) {
-        if (symbols.isEmpty()) return
-        // Fetch pages as required or single request fallback
+    private fun fetchCoinGeckoMetaOnDemand() {
         fetchCoinGeckoMetaForPage(2)
     }
 
@@ -427,12 +420,14 @@ fun HomeScreen(
     vm: CryptoViewModel
 ) {
     var balance by rememberSaveable { mutableDoubleStateOf(10000.0) }
+    val initialBalance = 10000.0
     var search by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("ALL") }
 
     val flashMap = remember { mutableStateMapOf<String, FlashState>() }
     val previousPrices = remember { mutableStateMapOf<String, Double>() }
 
+    // 0.3 second (300ms) Flash Color duration logic
     LaunchedEffect(coins) {
         coins.forEach { coin ->
             val previous = previousPrices[coin.symbol]
@@ -440,7 +435,7 @@ fun HomeScreen(
                 val direction = if (coin.price > previous) FlashState.Up else FlashState.Down
                 flashMap[coin.symbol] = direction
                 launch {
-                    delay(500)
+                    delay(300) // 0.3 second flash time
                     if (flashMap[coin.symbol] == direction) flashMap.remove(coin.symbol)
                 }
             }
@@ -467,7 +462,7 @@ fun HomeScreen(
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
         item {
             HeaderSection(status)
-            BalanceCard(balance) { balance = 10000.0 }
+            BalanceCard(balance, initialBalance) { balance = initialBalance }
             GlobalStatsCard(global)
 
             Spacer(Modifier.height(8.dp))
@@ -482,7 +477,8 @@ fun HomeScreen(
             )
             Spacer(Modifier.height(8.dp))
             FilterChipsSection(filter) { filter = it }
-            Text("${coins.size} Loaded Coins", fontSize = 10.sp, color = Color.Gray)
+            Spacer(Modifier.height(4.dp))
+            Text("${coins.size} Active Coins Loaded", fontSize = 10.sp, color = Color.Gray)
         }
 
         items(items = displayCoins, key = { it.symbol }) { coin ->
@@ -503,6 +499,105 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// RESTORED Top Bar (Previous/Back Button & 3 Lines Menu Icon)
+@Composable
+fun HeaderSection(status: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = { /* Previous / Back Action */ }) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+        IconButton(onClick = { /* Menu Drawer Action */ }) {
+            Icon(Icons.Default.Menu, contentDescription = "Menu")
+        }
+        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+            Text("Crypto Exchange", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Live Trading Hub", fontSize = 9.sp, color = Color.Gray)
+        }
+        Text("● $status", fontSize = 10.sp, color = if (status == "LIVE") PositiveGreen else Color.Gray)
+    }
+}
+
+// RESTORED Demo Balance Percent Gain/Loss Card
+@Composable
+fun BalanceCard(balance: Double, initialBalance: Double, onReset: () -> Unit) {
+    val pnlPercent = ((balance - initialBalance) / initialBalance) * 100
+
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Demo Balance", fontSize = 9.sp, color = Color.Gray)
+                Text("$" + String.format(Locale.US, "%,.2f", balance), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("PNL 24h: ", fontSize = 10.sp, color = Color.Gray)
+                    Text(
+                        formatPct(pnlPercent),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (pnlPercent >= 0) PositiveGreen else NegativeRed
+                    )
+                }
+            }
+            Button(
+                onClick = onReset,
+                colors = ButtonDefaults.buttonColors(containerColor = PurpleMimosa)
+            ) {
+                Text("Reset")
+            }
+        }
+    }
+}
+
+// RESTORED Complete Global Market Stats Section
+@Composable
+fun GlobalStatsCard(global: GlobalStats) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(10.dp)) {
+            Text("Global Market Overview", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                MarketValue("Global MC", formatLarge(global.totalMarketCap))
+                MarketValue("24h Volume", formatLarge(global.totalVolume))
+                MarketValue("BTC Dom", formatPct(global.btcDominance))
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                MarketValue("ETH Dom", formatPct(global.ethDominance))
+                MarketValue("ALT Dom", formatPct(global.altDominance))
+                MarketValue("Market Status", "Bullish")
+            }
+        }
+    }
+}
+
+// ROUNDED Pill / Capsule Filter Buttons
+@Composable
+fun FilterChipsSection(selectedFilter: String, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("ALL", "GAINER", "LOSER").forEach { filter ->
+            FilterChip(
+                selected = selectedFilter == filter,
+                onClick = { onSelect(filter) },
+                shape = CircleShape, // Fully Round
+                label = { Text(filter, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PurpleMimosa,
+                    selectedLabelColor = Color.White
+                )
+            )
         }
     }
 }
@@ -552,63 +647,6 @@ fun CryptoRow(coin: CryptoCoin, flash: FlashState) {
         }
     }
     HorizontalDivider(thickness = 0.5.dp)
-}
-
-@Composable
-fun HeaderSection(status: String) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("Crypto Exchange", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("On-Demand Stream", fontSize = 9.sp, color = Color.Gray)
-        }
-        Text("● $status", fontSize = 10.sp, color = if (status == "LIVE") PurpleMimosa else Color.Gray)
-    }
-}
-
-@Composable
-fun BalanceCard(balance: Double, onReset: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
-        Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text("Demo Balance", fontSize = 9.sp, color = Color.Gray)
-                Text("$" + String.format(Locale.US, "%,.2f", balance), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-            Button(onClick = onReset, enabled = balance <= 100.0, colors = ButtonDefaults.buttonColors(containerColor = PurpleMimosa)) {
-                Text("Reset")
-            }
-        }
-    }
-}
-
-@Composable
-fun GlobalStatsCard(global: GlobalStats) {
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
-        Column(Modifier.padding(10.dp)) {
-            Text("Global Market", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                MarketValue("Global MC", formatLarge(global.totalMarketCap))
-                MarketValue("24h Volume", formatLarge(global.totalVolume))
-                MarketValue("BTC Dom.", formatPct(global.btcDominance))
-            }
-        }
-    }
-}
-
-@Composable
-fun FilterChipsSection(selectedFilter: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("ALL", "GAINER", "LOSER").forEach { filter ->
-            FilterChip(
-                selected = selectedFilter == filter,
-                onClick = { onSelect(filter) },
-                label = { Text(filter, fontSize = 11.sp) }
-            )
-        }
-    }
 }
 
 @Composable
