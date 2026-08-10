@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit
 // COLORS
 // ============================================================
 
-private val PurpleMimosa = Color(0xFF9B59B6)
+val PurpleMimosa = Color(0xFF9B59B6)
 private val PositiveGreen = Color(0xFF16A34A)
 private val NegativeRed = Color(0xFFDC2626)
 
