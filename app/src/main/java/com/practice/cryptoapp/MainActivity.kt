@@ -53,7 +53,7 @@ private val PositiveGreen = Color(0xFF16A34A)
 private val NegativeRed = Color(0xFFDC2626)
 
 // ============================================================
-// DATA
+// DATA MODELS
 // ============================================================
 
 data class CryptoCoin(
@@ -94,7 +94,7 @@ private data class BinanceSeed(
 enum class FlashState { None, Up, Down }
 
 // ============================================================
-// OPTIMIZED WEBSOCKET & DATA MANAGER
+// OPTIMIZED WEBSOCKET & ON-DEMAND DATA MANAGER
 // ============================================================
 
 class BinanceWebSocketManager {
@@ -115,14 +115,12 @@ class BinanceWebSocketManager {
     private val allSeeds = mutableListOf<BinanceSeed>()
     private val loadedSymbols = mutableSetOf<String>()
     private val coinMap = mutableMapOf<String, CryptoCoin>()
+    private val cgMetaCache = mutableMapOf<String, CoinGeckoMeta>()
     private var activeWebSocket: WebSocket? = null
 
     private var stopped = false
     private var bootstrapJob: Job? = null
     private var publishJob: Job? = null
-    private var metadataRefreshJob: Job? = null
-
-    private var cgMetaMap = mapOf<String, CoinGeckoMeta>()
 
     private val _coins = MutableStateFlow<List<CryptoCoin>>(emptyList())
     val coins: StateFlow<List<CryptoCoin>> = _coins.asStateFlow()
@@ -142,11 +140,11 @@ class BinanceWebSocketManager {
     private suspend fun bootstrap() {
         _status.value = "FETCHING"
 
-        // Background load CoinGecko Meta & Global
-        cgMetaMap = loadCoinGeckoMetaMap()
+        // Single App Startup Request for Global Stats & Top Coins Meta
         loadGlobalStats()?.let { _global.value = it }
+        fetchCoinGeckoMetaForPage(1)
 
-        // Fetch Binance Seeds (Lightweight 24hr ticker list)
+        // Load All Available Binance Seeds
         allSeeds.clear()
         allSeeds.addAll(loadBinanceSeeds())
 
@@ -155,63 +153,78 @@ class BinanceWebSocketManager {
             return
         }
 
-        // Load initially only Top 20 coins
+        // Initialize Default Top 20 Coins
         loadMoreCoins(20)
-
-        startMetadataRefresh()
         _status.value = "LIVE"
     }
 
     fun loadMoreCoins(count: Int) {
-        synchronized(coinMap) {
+        scope.launch {
             val pendingSeeds = allSeeds.filter { it.symbol !in loadedSymbols }.take(count)
-            
-            pendingSeeds.forEach { seed ->
-                val base = seed.symbol.removeSuffix("USDT")
-                val meta = cgMetaMap[base.uppercase()]
+            if (pendingSeeds.isEmpty()) return@launch
 
-                coinMap[base] = CryptoCoin(
-                    symbol = base,
-                    name = meta?.name ?: base,
-                    logo = meta?.logo.orEmpty(),
-                    price = seed.lastPrice,
-                    change24h = seed.change24h,
-                    volume24h = seed.volume24h,
-                    marketCap = meta?.marketCap ?: 0.0,
-                    rank = 0
-                )
-                loadedSymbols.add(seed.symbol)
+            // Check if meta data is missing for any coin and fetch on demand
+            val missingMeta = pendingSeeds.map { it.symbol.removeSuffix("USDT").uppercase() }
+                .filter { it !in cgMetaCache }
+
+            if (missingMeta.isNotEmpty()) {
+                fetchCoinGeckoMetaOnDemand(missingMeta)
             }
-            publishNow()
+
+            synchronized(coinMap) {
+                pendingSeeds.forEach { seed ->
+                    val base = seed.symbol.removeSuffix("USDT")
+                    val meta = cgMetaCache[base.uppercase()]
+
+                    coinMap[base] = CryptoCoin(
+                        symbol = base,
+                        name = meta?.name ?: base,
+                        logo = meta?.logo.orEmpty(),
+                        price = seed.lastPrice,
+                        change24h = seed.change24h,
+                        volume24h = seed.volume24h,
+                        marketCap = meta?.marketCap ?: 0.0,
+                        rank = meta?.marketCapRank ?: 0
+                    )
+                    loadedSymbols.add(seed.symbol)
+                }
+                publishNow()
+            }
+            reconnectWebSocketForActiveCoins()
         }
-        reconnectWebSocketForActiveCoins()
     }
 
     fun searchAndLoadCoin(query: String) {
         if (query.isBlank()) return
+        val cleanQuery = query.trim().uppercase()
         val match = allSeeds.firstOrNull { 
-            it.symbol.removeSuffix("USDT").equals(query.trim(), ignoreCase = true) 
+            it.symbol.removeSuffix("USDT").equals(cleanQuery, ignoreCase = true) 
         }
 
         if (match != null && match.symbol !in loadedSymbols) {
-            synchronized(coinMap) {
+            scope.launch {
                 val base = match.symbol.removeSuffix("USDT")
-                val meta = cgMetaMap[base.uppercase()]
+                if (base.uppercase() !in cgMetaCache) {
+                    fetchCoinGeckoMetaOnDemand(listOf(base.uppercase()))
+                }
 
-                coinMap[base] = CryptoCoin(
-                    symbol = base,
-                    name = meta?.name ?: base,
-                    logo = meta?.logo.orEmpty(),
-                    price = match.lastPrice,
-                    change24h = match.change24h,
-                    volume24h = match.volume24h,
-                    marketCap = meta?.marketCap ?: 0.0,
-                    rank = 0
-                )
-                loadedSymbols.add(match.symbol)
-                publishNow()
+                synchronized(coinMap) {
+                    val meta = cgMetaCache[base.uppercase()]
+                    coinMap[base] = CryptoCoin(
+                        symbol = base,
+                        name = meta?.name ?: base,
+                        logo = meta?.logo.orEmpty(),
+                        price = match.lastPrice,
+                        change24h = match.change24h,
+                        volume24h = match.volume24h,
+                        marketCap = meta?.marketCap ?: 0.0,
+                        rank = meta?.marketCapRank ?: 0
+                    )
+                    loadedSymbols.add(match.symbol)
+                    publishNow()
+                }
+                reconnectWebSocketForActiveCoins()
             }
-            reconnectWebSocketForActiveCoins()
         }
     }
 
@@ -262,7 +275,7 @@ class BinanceWebSocketManager {
     private fun schedulePublish() {
         if (publishJob?.isActive == true) return
         publishJob = scope.launch {
-            delay(150) // Throttle UI Updates for better performance
+            delay(150)
             publishNow()
         }
     }
@@ -271,7 +284,9 @@ class BinanceWebSocketManager {
         synchronized(coinMap) {
             val list = coinMap.values
                 .sortedWith(compareByDescending<CryptoCoin> { it.marketCap }.thenBy { it.symbol })
-                .mapIndexed { index, coin -> coin.copy(rank = index + 1) }
+                .mapIndexed { index, coin -> 
+                    if (coin.rank == 0) coin.copy(rank = index + 1) else coin 
+                }
 
             _coins.value = list
         }
@@ -305,30 +320,33 @@ class BinanceWebSocketManager {
         } catch (_: Exception) { emptyList() }
     }
 
-    private suspend fun loadCoinGeckoMetaMap(): Map<String, CoinGeckoMeta> {
-        val result = mutableMapOf<String, CoinGeckoMeta>()
-        for (page in 1..2) { // Reduced to 2 pages for performance
-            val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false"
-            try {
-                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val array = JSONArray(response.body?.string().orEmpty())
-                        for (i in 0 until array.length()) {
-                            val coin = array.optJSONObject(i) ?: continue
-                            val symbol = coin.optString("symbol").uppercase()
-                            result[symbol] = CoinGeckoMeta(
-                                name = coin.optString("name"),
-                                logo = coin.optString("image"),
-                                marketCap = coin.optDouble("market_cap", 0.0),
-                                marketCapRank = coin.optInt("market_cap_rank", Int.MAX_VALUE)
-                            )
-                        }
+    // Single Startup Request for Top Coins Metadata
+    private fun fetchCoinGeckoMetaForPage(page: Int) {
+        val url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=$page&sparkline=false"
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val array = JSONArray(response.body?.string().orEmpty())
+                    for (i in 0 until array.length()) {
+                        val coin = array.optJSONObject(i) ?: continue
+                        val symbol = coin.optString("symbol").uppercase()
+                        cgMetaCache[symbol] = CoinGeckoMeta(
+                            name = coin.optString("name"),
+                            logo = coin.optString("image"),
+                            marketCap = coin.optDouble("market_cap", 0.0),
+                            marketCapRank = coin.optInt("market_cap_rank", Int.MAX_VALUE)
+                        )
                     }
                 }
-            } catch (_: Exception) {}
-            delay(300)
-        }
-        return result
+            }
+        } catch (_: Exception) {}
+    }
+
+    // On-Demand Meta Request when new coins are requested
+    private fun fetchCoinGeckoMetaOnDemand(symbols: List<String>) {
+        if (symbols.isEmpty()) return
+        // Fetch pages as required or single request fallback
+        fetchCoinGeckoMetaForPage(2)
     }
 
     private fun loadGlobalStats(): GlobalStats? {
@@ -346,30 +364,17 @@ class BinanceWebSocketManager {
         } catch (_: Exception) { null }
     }
 
-    private fun startMetadataRefresh() {
-        if (metadataRefreshJob?.isActive == true) return
-        metadataRefreshJob = scope.launch {
-            while (!stopped) {
-                delay(10 * 60 * 1000L) // Refresh every 10 min
-                if (stopped) break
-                cgMetaMap = loadCoinGeckoMetaMap()
-                loadGlobalStats()?.let { _global.value = it }
-            }
-        }
-    }
-
     fun stop() {
         stopped = true
         bootstrapJob?.cancel()
         publishJob?.cancel()
-        metadataRefreshJob?.cancel()
         activeWebSocket?.close(1000, "Stopped")
         scope.cancel()
     }
 }
 
 // ============================================================
-// VIEW MODEL
+// VIEW MODEL & MAIN ACTIVITY
 // ============================================================
 
 class CryptoViewModel : ViewModel() {
@@ -386,10 +391,6 @@ class CryptoViewModel : ViewModel() {
     }
 }
 
-// ============================================================
-// MAIN ACTIVITY
-// ============================================================
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -402,7 +403,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // ============================================================
-// MAIN APP & HOME SCREEN
+// COMPOSABLE UI
 // ============================================================
 
 @Composable
@@ -467,7 +468,7 @@ fun HomeScreen(
         item {
             HeaderSection(status)
             BalanceCard(balance) { balance = 10000.0 }
-            GlobalStatsCard(global, coins)
+            GlobalStatsCard(global)
 
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -481,7 +482,7 @@ fun HomeScreen(
             )
             Spacer(Modifier.height(8.dp))
             FilterChipsSection(filter) { filter = it }
-            Text("${coins.size} Active Loaded Markets", fontSize = 10.sp, color = Color.Gray)
+            Text("${coins.size} Loaded Coins", fontSize = 10.sp, color = Color.Gray)
         }
 
         items(items = displayCoins, key = { it.symbol }) { coin ->
@@ -505,10 +506,6 @@ fun HomeScreen(
         }
     }
 }
-
-// ============================================================
-// UI COMPONENTS
-// ============================================================
 
 @Composable
 fun CryptoRow(coin: CryptoCoin, flash: FlashState) {
@@ -539,13 +536,11 @@ fun CryptoRow(coin: CryptoCoin, flash: FlashState) {
 
         Spacer(Modifier.width(8.dp))
 
-        // Symbol & Name Column (REMOVED duplicate 24h change from here)
         Column(Modifier.weight(1f)) {
             Text(coin.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
             Text(coin.symbol, fontSize = 9.sp, color = Color.Gray)
         }
 
-        // Price & Single 24h Change Column
         Column(horizontalAlignment = Alignment.End) {
             Text(formatPrice(coin.price), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = priceColor)
             Text(
@@ -567,7 +562,7 @@ fun HeaderSection(status: String) {
     ) {
         Column(Modifier.weight(1f)) {
             Text("Crypto Exchange", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("Optimized Dynamic Stream", fontSize = 9.sp, color = Color.Gray)
+            Text("On-Demand Stream", fontSize = 9.sp, color = Color.Gray)
         }
         Text("● $status", fontSize = 10.sp, color = if (status == "LIVE") PurpleMimosa else Color.Gray)
     }
@@ -589,7 +584,7 @@ fun BalanceCard(balance: Double, onReset: () -> Unit) {
 }
 
 @Composable
-fun GlobalStatsCard(global: GlobalStats, coins: List<CryptoCoin>) {
+fun GlobalStatsCard(global: GlobalStats) {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(10.dp)) {
             Text("Global Market", fontWeight = FontWeight.Bold, fontSize = 11.sp)
