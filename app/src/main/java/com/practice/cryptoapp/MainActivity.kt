@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,7 +28,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.*
-import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -47,12 +45,13 @@ data class CryptoCoin(
 )
 
 // ============================================================
-// BINANCE WSS
+// BINANCE WEBSOCKET MANAGER
 //
-// NO REST API
-// NO MANUAL COIN LIST
+// IMPORTANT:
+// REST API = NONE
 //
-// !ticker@arr dynamically gives ticker information.
+// We use individual Binance ticker streams.
+// No !ticker@arr.
 // ============================================================
 
 class BinanceWebSocketManager {
@@ -61,12 +60,18 @@ class BinanceWebSocketManager {
         OkHttpClient.Builder()
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(20, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
 
     private var socket: WebSocket? = null
 
     private var stopped = false
-    private var reconnecting = false
+    private var reconnectJob: Job? = null
+
+    private val scope =
+        CoroutineScope(
+            SupervisorJob() + Dispatchers.IO
+        )
 
     private val tickerMap =
         mutableMapOf<String, CryptoCoin>()
@@ -83,9 +88,80 @@ class BinanceWebSocketManager {
     val status: StateFlow<String> =
         _status.asStateFlow()
 
+    /*
+     * Binance USDT markets.
+     *
+     * This is intentionally kept separate from the UI.
+     *
+     * More symbols can be added later without changing
+     * HomeScreen or pagination.
+     *
+     * No REST request is made.
+     */
+
+    private val symbols = listOf(
+        "BTCUSDT",
+        "ETHUSDT",
+        "BNBUSDT",
+        "SOLUSDT",
+        "XRPUSDT",
+        "DOGEUSDT",
+        "ADAUSDT",
+        "AVAXUSDT",
+        "TRXUSDT",
+        "LINKUSDT",
+        "DOTUSDT",
+        "MATICUSDT",
+        "LTCUSDT",
+        "BCHUSDT",
+        "UNIUSDT",
+        "ATOMUSDT",
+        "ETCUSDT",
+        "FILUSDT",
+        "APTUSDT",
+        "NEARUSDT",
+        "ARBUSDT",
+        "OPUSDT",
+        "SUIUSDT",
+        "INJUSDT",
+        "SEIUSDT",
+        "AAVEUSDT",
+        "MKRUSDT",
+        "IMXUSDT",
+        "RUNEUSDT",
+        "GRTUSDT",
+        "ALGOUSDT",
+        "FTMUSDT",
+        "SANDUSDT",
+        "MANAUSDT",
+        "AXSUSDT",
+        "EOSUSDT",
+        "XTZUSDT",
+        "THETAUSDT",
+        "FLOWUSDT",
+        "EGLDUSDT",
+        "KAVAUSDT",
+        "SNXUSDT",
+        "CRVUSDT",
+        "COMPUSDT",
+        "1INCHUSDT",
+        "ENJUSDT",
+        "CHZUSDT",
+        "APEUSDT",
+        "LDOUSDT",
+        "RNDRUSDT",
+        "TIAUSDT",
+        "JASMYUSDT",
+        "PEPEUSDT",
+        "SHIBUSDT",
+        "WIFUSDT",
+        "BONKUSDT",
+        "FLOKIUSDT"
+    )
+
     fun start() {
 
-        if (socket != null) {
+        if (!stopped && socket != null) {
             return
         }
 
@@ -101,17 +177,28 @@ class BinanceWebSocketManager {
         }
 
         /*
-         * Binance all-market ticker stream.
+         * Binance combined WebSocket stream.
          *
-         * IMPORTANT:
-         * No fixed list of BTC/ETH/etc is used here.
+         * Example:
+         *
+         * /stream?streams=btcusdt@ticker/ethusdt@ticker
+         *
+         * This is still ONE WebSocket connection.
          */
+
+        val streams =
+            symbols.joinToString("/") {
+                "${it.lowercase()}@ticker"
+            }
+
+        val url =
+            "wss://stream.binance.com:9443/stream?streams=$streams"
+
+        _status.value = "CONNECTING"
 
         val request =
             Request.Builder()
-                .url(
-                    "wss://stream.binance.com:9443/ws/!ticker@arr"
-                )
+                .url(url)
                 .build()
 
         socket =
@@ -132,7 +219,7 @@ class BinanceWebSocketManager {
                         text: String
                     ) {
 
-                        parseTickerMessage(text)
+                        parseMessage(text)
                     }
 
                     override fun onFailure(
@@ -146,7 +233,7 @@ class BinanceWebSocketManager {
                         _status.value =
                             "RECONNECTING"
 
-                        reconnect()
+                        scheduleReconnect()
                     }
 
                     override fun onClosed(
@@ -162,68 +249,48 @@ class BinanceWebSocketManager {
                             _status.value =
                                 "RECONNECTING"
 
-                            reconnect()
+                            scheduleReconnect()
                         }
                     }
                 }
             )
     }
 
-    private fun parseTickerMessage(
+    private fun parseMessage(
         text: String
     ) {
 
         try {
 
             /*
-             * !ticker@arr returns an array.
+             * Combined stream format:
+             *
+             * {
+             *   "stream":"btcusdt@ticker",
+             *   "data":{...}
+             * }
              */
 
-            val array =
-                JSONArray(text)
+            val root =
+                JSONObject(text)
 
-            var changed = false
+            val data =
+                root.optJSONObject("data")
+                    ?: return
 
-            for (i in 0 until array.length()) {
-
-                val obj =
-                    array.optJSONObject(i)
-                        ?: continue
-
-                if (
-                    updateCoin(obj)
-                ) {
-                    changed = true
-                }
-            }
-
-            if (changed) {
-                publish()
-            }
+            updateCoin(data)
 
         } catch (_: Exception) {
-
-            /*
-             * If Binance sends something unexpected,
-             * simply ignore that message.
-             */
+            // Ignore malformed messages.
         }
     }
 
     private fun updateCoin(
         obj: JSONObject
-    ): Boolean {
+    ) {
 
         val fullSymbol =
             obj.optString("s")
-
-        /*
-         * We only want USDT markets.
-         *
-         * Example:
-         * BTCUSDT -> BTC
-         * ETHUSDT -> ETH
-         */
 
         if (
             !fullSymbol.endsWith(
@@ -231,28 +298,24 @@ class BinanceWebSocketManager {
                 ignoreCase = true
             )
         ) {
-            return false
+            return
         }
 
         val symbol =
             fullSymbol
                 .removeSuffix("USDT")
 
-        if (symbol.isBlank()) {
-            return false
-        }
-
         val price =
             obj.optString("c")
                 .toDoubleOrNull()
-                ?: return false
+                ?: return
 
         val change =
             obj.optString("P")
                 .toDoubleOrNull()
                 ?: 0.0
 
-        val quoteVolume =
+        val volume =
             obj.optString("q")
                 .toDoubleOrNull()
                 ?: 0.0
@@ -264,71 +327,56 @@ class BinanceWebSocketManager {
                     symbol = symbol,
                     price = price,
                     change24h = change,
-                    volume24h = quoteVolume,
+                    volume24h = volume,
                     rank = 0
                 )
-        }
-
-        return true
-    }
-
-    private fun publish() {
-
-        synchronized(tickerMap) {
 
             /*
-             * Rank by 24h quote volume.
-             *
-             * This gives a useful default market order
-             * without maintaining a manual coin list.
+             * Rank is based on 24h quote volume.
              */
 
-            val sorted =
+            _coins.value =
                 tickerMap.values
                     .sortedByDescending {
                         it.volume24h
                     }
-                    .mapIndexed {
-                            index,
-                            coin ->
+                    .mapIndexed { index, coin ->
 
                         coin.copy(
                             rank = index + 1
                         )
                     }
-
-            _coins.value = sorted
         }
     }
 
-    private fun reconnect() {
+    private fun scheduleReconnect() {
+
+        if (stopped) {
+            return
+        }
 
         if (
-            reconnecting ||
-            stopped
+            reconnectJob?.isActive == true
         ) {
             return
         }
 
-        reconnecting = true
+        reconnectJob =
+            scope.launch {
 
-        CoroutineScope(
-            Dispatchers.IO
-        ).launch {
+                delay(2000)
 
-            delay(2000)
-
-            reconnecting = false
-
-            if (!stopped) {
-                connect()
+                if (!stopped) {
+                    connect()
+                }
             }
-        }
     }
 
     fun stop() {
 
         stopped = true
+
+        reconnectJob?.cancel()
 
         socket?.close(
             1000,
@@ -336,17 +384,17 @@ class BinanceWebSocketManager {
         )
 
         socket = null
+
+        scope.cancel()
     }
 }
 
 // ============================================================
 // VIEWMODEL
-//
-// WSS yahan hai, HomeScreen mein nahi.
-// Isliye Home -> Trade -> Home se connection restart nahi hota.
 // ============================================================
 
-class CryptoViewModel : ViewModel() {
+class CryptoViewModel :
+    ViewModel() {
 
     private val manager =
         BinanceWebSocketManager()
@@ -435,9 +483,7 @@ fun CryptoExchangeApp(
                 Text(
                     "Crypto Exchange",
                     modifier =
-                        Modifier.padding(
-                            20.dp
-                        ),
+                        Modifier.padding(20.dp),
                     fontSize = 20.sp,
                     fontWeight =
                         FontWeight.Bold
@@ -534,12 +580,10 @@ fun CryptoExchangeApp(
                         NavigationBarItem(
 
                             selected =
-                                selectedTab ==
-                                    index,
+                                selectedTab == index,
 
                             onClick = {
-                                selectedTab =
-                                    index
+                                selectedTab = index
                             },
 
                             icon = {
@@ -568,10 +612,8 @@ fun CryptoExchangeApp(
                     0 -> {
 
                         HomeScreen(
-                            coins =
-                                coins,
-                            status =
-                                status,
+                            coins = coins,
+                            status = status,
                             onMenuClick = {
 
                                 scope.launch {
@@ -582,24 +624,16 @@ fun CryptoExchangeApp(
                     }
 
                     1 ->
-                        PlaceholderScreen(
-                            "Chart"
-                        )
+                        PlaceholderScreen("Chart")
 
                     2 ->
-                        PlaceholderScreen(
-                            "Trade"
-                        )
+                        PlaceholderScreen("Trade")
 
                     3 ->
-                        PlaceholderScreen(
-                            "Analysis"
-                        )
+                        PlaceholderScreen("Analysis")
 
                     4 ->
-                        PlaceholderScreen(
-                            "News"
-                        )
+                        PlaceholderScreen("News")
                 }
             }
         }
@@ -623,9 +657,7 @@ fun HomeScreen(
 
     var balance
             by rememberSaveable {
-                mutableDoubleStateOf(
-                    10000.0
-                )
+                mutableDoubleStateOf(10000.0)
             }
 
     var search
@@ -637,15 +669,6 @@ fun HomeScreen(
             by rememberSaveable {
                 mutableStateOf("ALL")
             }
-
-    /*
-     * IMPORTANT:
-     *
-     * Start with 20.
-     * Every Next adds 50.
-     *
-     * We do NOT create another WebSocket.
-     */
 
     var visibleCount
             by rememberSaveable {
@@ -660,12 +683,9 @@ fun HomeScreen(
             visibleCount
         ) {
 
-            var list =
-                coins
+            var list = coins
 
-            if (
-                search.isNotBlank()
-            ) {
+            if (search.isNotBlank()) {
 
                 list =
                     list.filter {
@@ -696,13 +716,9 @@ fun HomeScreen(
                         }
                 }
 
-            if (
-                search.isBlank()
-            ) {
+            if (search.isBlank()) {
 
-                list.take(
-                    visibleCount
-                )
+                list.take(visibleCount)
 
             } else {
 
@@ -730,28 +746,18 @@ fun HomeScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(
-                            bottom = 10.dp
-                        ),
+                        .padding(bottom = 10.dp),
 
                 verticalAlignment =
                     Alignment.CenterVertically
 
             ) {
 
-                /*
-                 * Abhi menu icon.
-                 *
-                 * Tumhara app_logo.png / app_logo_v2.webp
-                 * baad mein isi jagah use karenge.
-                 */
-
                 Icon(
 
                     Icons.Default.Menu,
 
-                    contentDescription =
-                        "Menu",
+                    contentDescription = "Menu",
 
                     modifier =
                         Modifier
@@ -791,19 +797,13 @@ fun HomeScreen(
                     fontSize = 11.sp,
 
                     color =
-                        if (
-                            status == "LIVE"
-                        ) {
+                        if (status == "LIVE") {
 
-                            Color(
-                                0xFF008000
-                            )
+                            Color(0xFF008000)
 
                         } else {
 
-                            Color(
-                                0xFFFF9800
-                            )
+                            Color(0xFFFF9800)
                         }
                 )
             }
@@ -819,9 +819,7 @@ fun HomeScreen(
 
                 Modifier
                     .fillMaxWidth()
-                    .padding(
-                        vertical = 5.dp
-                    )
+                    .padding(vertical = 5.dp)
 
             ) {
 
@@ -869,9 +867,7 @@ fun HomeScreen(
                         Button(
 
                             onClick = {
-
-                                balance =
-                                    10000.0
+                                balance = 10000.0
                             },
 
                             enabled =
@@ -905,8 +901,7 @@ fun HomeScreen(
                             "30d"
                         )
 
-                    periods
-                        .chunked(4)
+                    periods.chunked(4)
                         .forEach { row ->
 
                             Row(
@@ -956,9 +951,7 @@ fun HomeScreen(
 
                 Modifier
                     .fillMaxWidth()
-                    .padding(
-                        vertical = 5.dp
-                    )
+                    .padding(vertical = 5.dp)
 
             ) {
 
@@ -1028,22 +1021,19 @@ fun HomeScreen(
         }
 
         // ====================================================
-        // SEARCH + FILTER
+        // SEARCH
         // ====================================================
 
         item {
 
             OutlinedTextField(
 
-                value =
-                    search,
+                value = search,
 
                 onValueChange = {
 
                     search = it
-
-                    visibleCount =
-                        20
+                    visibleCount = 20
                 },
 
                 modifier =
@@ -1052,9 +1042,7 @@ fun HomeScreen(
                 singleLine = true,
 
                 placeholder = {
-                    Text(
-                        "Search crypto..."
-                    )
+                    Text("Search crypto...")
                 },
 
                 leadingIcon = {
@@ -1075,42 +1063,48 @@ fun HomeScreen(
             ) {
 
                 FilterChip(
+
                     selected =
                         filter == "ALL",
+
                     onClick = {
-                        filter =
-                            "ALL"
-                        visibleCount =
-                            20
+
+                        filter = "ALL"
+                        visibleCount = 20
                     },
+
                     label = {
                         Text("All")
                     }
                 )
 
                 FilterChip(
+
                     selected =
                         filter == "GAINER",
+
                     onClick = {
-                        filter =
-                            "GAINER"
-                        visibleCount =
-                            20
+
+                        filter = "GAINER"
+                        visibleCount = 20
                     },
+
                     label = {
                         Text("Gainer")
                     }
                 )
 
                 FilterChip(
+
                     selected =
                         filter == "LOSER",
+
                     onClick = {
-                        filter =
-                            "LOSER"
-                        visibleCount =
-                            20
+
+                        filter = "LOSER"
+                        visibleCount = 20
                     },
+
                     label = {
                         Text("Loser")
                     }
@@ -1127,13 +1121,12 @@ fun HomeScreen(
 
                 fontSize = 11.sp,
 
-                color =
-                    Color.Gray
+                color = Color.Gray
             )
         }
 
         // ====================================================
-        // COINS
+        // COIN LIST
         // ====================================================
 
         items(
@@ -1146,18 +1139,14 @@ fun HomeScreen(
 
         ) { coin ->
 
-            CryptoRow(
-                coin
-            )
+            CryptoRow(coin)
         }
 
         // ====================================================
-        // NEXT / PREVIOUS
+        // PAGINATION
         // ====================================================
 
-        if (
-            search.isBlank()
-        ) {
+        if (search.isBlank()) {
 
             item {
 
@@ -1165,9 +1154,7 @@ fun HomeScreen(
 
                     Modifier
                         .fillMaxWidth()
-                        .padding(
-                            vertical = 14.dp
-                        ),
+                        .padding(vertical = 14.dp),
 
                     horizontalArrangement =
                         Arrangement.SpaceBetween,
@@ -1214,8 +1201,7 @@ fun HomeScreen(
                         },
 
                         enabled =
-                            visibleCount <
-                                coins.size
+                            visibleCount < coins.size
 
                     ) {
 
@@ -1240,9 +1226,7 @@ fun CryptoRow(
 
         Modifier
             .fillMaxWidth()
-            .padding(
-                vertical = 9.dp
-            ),
+            .padding(vertical = 9.dp),
 
         verticalAlignment =
             Alignment.CenterVertically
@@ -1255,19 +1239,20 @@ fun CryptoRow(
 
             fontSize = 10.sp,
 
-            color =
-                Color.Gray,
+            color = Color.Gray,
 
             modifier =
                 Modifier.width(38.dp)
         )
 
         /*
-         * Filhaal dynamic logo ke liye
-         * symbol initial show ho raha hai.
+         * CoinGecko logo.
          *
-         * CoinGecko logo mapping ko next step mein
-         * dynamic cache ke saath add karenge.
+         * CoinGecko IDs are not the same as Binance symbols,
+         * therefore the dynamic ID mapping will be added separately.
+         *
+         * For now we keep the row stable instead of making a
+         * network request for every recomposition.
          */
 
         Box(
@@ -1282,8 +1267,9 @@ fun CryptoRow(
         ) {
 
             Text(
-                coin.symbol
-                    .take(1),
+
+                coin.symbol.take(1),
+
                 fontWeight =
                     FontWeight.Bold
             )
@@ -1337,13 +1323,9 @@ fun CryptoRow(
                 fontSize = 11.sp,
 
                 color =
-                    if (
-                        coin.change24h >= 0
-                    ) {
+                    if (coin.change24h >= 0) {
 
-                        Color(
-                            0xFF008000
-                        )
+                        Color(0xFF008000)
 
                     } else {
 
