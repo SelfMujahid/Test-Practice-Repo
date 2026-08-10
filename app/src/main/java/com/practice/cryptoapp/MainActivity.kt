@@ -173,7 +173,7 @@ class BinanceWebSocketManager {
                     coinMap[base] = CryptoCoin(
                         symbol = base,
                         name = meta?.name ?: base,
-                        logo = meta?.logo.orEmpty(),
+                        logo = "https://assets.binancestatic.com/frontend/device-app/static/images/crypto/${base.lowercase()}.png",
                         price = seed.lastPrice,
                         change24h = seed.change24h,
                         volume24h = seed.volume24h,
@@ -223,7 +223,7 @@ class BinanceWebSocketManager {
                     coinMap[base] = CryptoCoin(
                         symbol = base,
                         name = meta?.name ?: base,
-                        logo = meta?.logo.orEmpty(),
+                        logo = "https://assets.binancestatic.com/frontend/device-app/static/images/crypto/${base.lowercase()}.png",
                         price = match.lastPrice,
                         change24h = match.change24h,
                         volume24h = match.volume24h,
