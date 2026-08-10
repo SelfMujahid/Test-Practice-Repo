@@ -1259,7 +1259,7 @@ private fun TradeOrderPanel(
 // ============================================================
 
 @Composable
-private fun SideButton(
+private fun RowScope.SideButton(
     title: String,
     selected: Boolean,
     color: Color,
