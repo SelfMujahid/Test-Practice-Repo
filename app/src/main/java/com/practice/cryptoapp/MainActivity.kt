@@ -2179,9 +2179,7 @@ fun BinanceWebSocketManager.getTotalSeedCount():
 // ============================================================
 
 @Composable
-fun HeaderSection(
-    status: String
-) {
+fun HeaderSection() {
 
     Row(
 
