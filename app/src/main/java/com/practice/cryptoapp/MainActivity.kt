@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,11 +28,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
+import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -43,109 +40,72 @@ import java.util.concurrent.TimeUnit
 
 data class CryptoCoin(
     val symbol: String,
+    val name: String,
+    val logo: String,
     val price: Double,
     val change24h: Double,
     val volume24h: Double,
+    val marketCap: Double,
     val rank: Int
 )
 
 // ============================================================
-// BINANCE WEBSOCKET MANAGER
+// BINANCE WSS
 //
-// IMPORTANT:
-//
-// NO REST API
-//
+// NO BINANCE REST API
 // NO MANUAL COIN LIST
 //
-// Binance !ticker@arr stream automatically sends
-// ticker information for Binance markets.
+// Binance !ticker@arr automatically sends many markets.
 // ============================================================
 
 class BinanceWebSocketManager {
 
     private val client =
         OkHttpClient.Builder()
-            .readTimeout(
-                0,
-                TimeUnit.MILLISECONDS
-            )
-            .pingInterval(
-                20,
-                TimeUnit.SECONDS
-            )
-            .retryOnConnectionFailure(true)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
             .build()
 
-    private var socket: WebSocket? = null
+    private var webSocket: WebSocket? = null
 
     private var stopped = false
-
     private var reconnectJob: Job? = null
-
-    private val scope =
-        CoroutineScope(
-            SupervisorJob() +
-                Dispatchers.IO
-        )
-
-    /*
-     * All received coins are stored here.
-     *
-     * No coin names are manually entered.
-     */
 
     private val tickerMap =
         mutableMapOf<String, CryptoCoin>()
 
     private val _coins =
-        MutableStateFlow<List<CryptoCoin>>(
-            emptyList()
-        )
+        MutableStateFlow<List<CryptoCoin>>(emptyList())
 
     val coins: StateFlow<List<CryptoCoin>> =
         _coins.asStateFlow()
 
     private val _status =
-        MutableStateFlow(
-            "CONNECTING"
-        )
+        MutableStateFlow("CONNECTING")
 
     val status: StateFlow<String> =
         _status.asStateFlow()
 
-    // ========================================================
+    // --------------------------------------------------------
     // START
-    // ========================================================
+    // --------------------------------------------------------
 
     fun start() {
 
-        if (socket != null) {
-            return
-        }
+        if (webSocket != null) return
 
         stopped = false
 
         connect()
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // CONNECT
-    // ========================================================
+    // --------------------------------------------------------
 
     private fun connect() {
 
-        if (stopped) {
-            return
-        }
-
-        /*
-         * Binance ALL MARKET ticker WebSocket.
-         *
-         * No REST API.
-         *
-         * No manual symbol list.
-         */
+        if (stopped) return
 
         val request =
             Request.Builder()
@@ -154,46 +114,26 @@ class BinanceWebSocketManager {
                 )
                 .build()
 
-        _status.value =
-            "CONNECTING"
-
-        socket =
+        webSocket =
             client.newWebSocket(
                 request,
-
-                object :
-                    WebSocketListener() {
-
-                    // ========================================
-                    // OPEN
-                    // ========================================
+                object : WebSocketListener() {
 
                     override fun onOpen(
                         webSocket: WebSocket,
                         response: Response
                     ) {
 
-                        _status.value =
-                            "LIVE"
+                        _status.value = "LIVE"
                     }
-
-                    // ========================================
-                    // MESSAGE
-                    // ========================================
 
                     override fun onMessage(
                         webSocket: WebSocket,
                         text: String
                     ) {
 
-                        parseMessage(
-                            text
-                        )
+                        parseMessage(text)
                     }
-
-                    // ========================================
-                    // FAILURE
-                    // ========================================
 
                     override fun onFailure(
                         webSocket: WebSocket,
@@ -201,7 +141,8 @@ class BinanceWebSocketManager {
                         response: Response?
                     ) {
 
-                        socket = null
+                        this@BinanceWebSocketManager.webSocket =
+                            null
 
                         _status.value =
                             "RECONNECTING"
@@ -209,17 +150,14 @@ class BinanceWebSocketManager {
                         scheduleReconnect()
                     }
 
-                    // ========================================
-                    // CLOSED
-                    // ========================================
-
                     override fun onClosed(
                         webSocket: WebSocket,
                         code: Int,
                         reason: String
                     ) {
 
-                        socket = null
+                        this@BinanceWebSocketManager.webSocket =
+                            null
 
                         if (!stopped) {
 
@@ -233,9 +171,9 @@ class BinanceWebSocketManager {
             )
     }
 
-    // ========================================================
-    // PARSE BINANCE MESSAGE
-    // ========================================================
+    // --------------------------------------------------------
+    // PARSE BINANCE !ticker@arr
+    // --------------------------------------------------------
 
     private fun parseMessage(
         text: String
@@ -243,223 +181,155 @@ class BinanceWebSocketManager {
 
         try {
 
-            /*
-             * Binance !ticker@arr returns:
-             *
-             * [
-             *   {
-             *     "e":"24hrTicker",
-             *     "s":"BTCUSDT",
-             *     "c":"64990.46",
-             *     "P":"0.031",
-             *     "q":"..."
-             *   },
-             *   ...
-             * ]
-             */
-
             val array =
-                JSONArray(
-                    text
-                )
+                JSONArray(text)
 
             var changed =
                 false
 
-            for (
-                i in 0 until array.length()
-            ) {
+            for (i in 0 until array.length()) {
 
                 val obj =
-                    array.optJSONObject(
-                        i
-                    )
+                    array.optJSONObject(i)
                         ?: continue
 
+                val symbol =
+                    obj.optString("s")
+
+                // Only USDT spot markets
                 if (
-                    updateCoin(
-                        obj
+                    !symbol.endsWith(
+                        "USDT",
+                        ignoreCase = true
                     )
                 ) {
-
-                    changed = true
+                    continue
                 }
+
+                // Remove leveraged token markets
+                if (
+                    symbol.contains("UPUSDT") ||
+                    symbol.contains("DOWNUSDT") ||
+                    symbol.contains("BULLUSDT") ||
+                    symbol.contains("BEARUSDT")
+                ) {
+                    continue
+                }
+
+                val price =
+                    obj.optString("c")
+                        .toDoubleOrNull()
+                        ?: continue
+
+                val change =
+                    obj.optString("P")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                val volume =
+                    obj.optString("q")
+                        .toDoubleOrNull()
+                        ?: 0.0
+
+                val old =
+                    tickerMap[symbol]
+
+                tickerMap[symbol] =
+                    CryptoCoin(
+                        symbol =
+                            symbol.removeSuffix(
+                                "USDT"
+                            ),
+
+                        name =
+                            old?.name
+                                ?: symbol.removeSuffix(
+                                    "USDT"
+                                ),
+
+                        logo =
+                            old?.logo
+                                ?: "",
+
+                        price =
+                            price,
+
+                        change24h =
+                            change,
+
+                        volume24h =
+                            volume,
+
+                        marketCap =
+                            old?.marketCap
+                                ?: 0.0,
+
+                        rank =
+                            old?.rank
+                                ?: 0
+                    )
+
+                changed = true
             }
 
             if (changed) {
 
-                publishCoins()
+                publish()
             }
 
-        } catch (_: Exception) {
+        } catch (e: Exception) {
 
-            /*
-             * Ignore invalid/unexpected
-             * Binance messages.
-             */
+            // Ignore malformed/unexpected message
         }
     }
 
-    // ========================================================
-    // UPDATE COIN
-    // ========================================================
-
-    private fun updateCoin(
-        obj: JSONObject
-    ): Boolean {
-
-        val fullSymbol =
-            obj.optString(
-                "s"
-            )
-
-        if (
-            fullSymbol.isBlank()
-        ) {
-
-            return false
-        }
-
-        /*
-         * We want USDT markets.
-         *
-         * BTCUSDT -> BTC
-         * ETHUSDT -> ETH
-         */
-
-        if (
-            !fullSymbol.endsWith(
-                "USDT",
-                ignoreCase = true
-            )
-        ) {
-
-            return false
-        }
-
-        val symbol =
-            fullSymbol
-                .removeSuffix(
-                    "USDT"
-                )
-
-        if (
-            symbol.isBlank()
-        ) {
-
-            return false
-        }
-
-        val price =
-            obj.optString(
-                "c"
-            )
-                .toDoubleOrNull()
-                ?: return false
-
-        val change24h =
-            obj.optString(
-                "P"
-            )
-                .toDoubleOrNull()
-                ?: 0.0
-
-        val volume24h =
-            obj.optString(
-                "q"
-            )
-                .toDoubleOrNull()
-                ?: 0.0
-
-        synchronized(
-            tickerMap
-        ) {
-
-            tickerMap[
-                symbol
-            ] =
-                CryptoCoin(
-
-                    symbol =
-                        symbol,
-
-                    price =
-                        price,
-
-                    change24h =
-                        change24h,
-
-                    volume24h =
-                        volume24h,
-
-                    rank =
-                        0
-                )
-        }
-
-        return true
-    }
-
-    // ========================================================
+    // --------------------------------------------------------
     // PUBLISH
-    // ========================================================
+    // --------------------------------------------------------
 
-    private fun publishCoins() {
+    private fun publish() {
 
-        synchronized(
-            tickerMap
-        ) {
+        synchronized(tickerMap) {
 
-            /*
-             * Rank coins by 24h quote volume.
-             *
-             * Highest volume = rank 1.
-             */
-
-            val sorted =
+            val list =
                 tickerMap.values
                     .sortedByDescending {
-
                         it.volume24h
                     }
-
-            _coins.value =
-                sorted.mapIndexed {
-
+                    .mapIndexed {
                         index,
                         coin ->
 
-                    coin.copy(
-                        rank =
-                            index + 1
-                    )
-                }
+                        coin.copy(
+                            rank =
+                                index + 1
+                        )
+                    }
+
+            _coins.value =
+                list
         }
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // RECONNECT
-    // ========================================================
+    // --------------------------------------------------------
 
     private fun scheduleReconnect() {
 
-        if (stopped) {
-            return
-        }
-
         if (
+            stopped ||
             reconnectJob?.isActive == true
         ) {
-
             return
         }
 
         reconnectJob =
-            scope.launch {
+            CoroutineScope(
+                Dispatchers.IO
+            ).launch {
 
-                delay(
-                    2000
-                )
+                delay(2000)
 
                 if (!stopped) {
 
@@ -468,9 +338,9 @@ class BinanceWebSocketManager {
             }
     }
 
-    // ========================================================
+    // --------------------------------------------------------
     // STOP
-    // ========================================================
+    // --------------------------------------------------------
 
     fun stop() {
 
@@ -478,24 +348,22 @@ class BinanceWebSocketManager {
 
         reconnectJob?.cancel()
 
-        socket?.close(
+        reconnectJob = null
+
+        webSocket?.close(
             1000,
             "Application stopped"
         )
 
-        socket = null
-
-        scope.cancel()
+        webSocket = null
     }
 }
 
 // ============================================================
 // VIEWMODEL
 //
-// WebSocket yahan maintain hota hai.
-//
-// Home -> Trade -> Home karne se HomeScreen destroy/create
-// hone ke bawajood ViewModel connection ko maintain karta hai.
+// ViewModel ke andar WSS rahega.
+// Home -> Trade -> Home par WSS dobara create nahi hoga.
 // ============================================================
 
 class CryptoViewModel :
@@ -549,7 +417,7 @@ class MainActivity :
 }
 
 // ============================================================
-// MAIN APP
+// APP
 // ============================================================
 
 @Composable
@@ -572,22 +440,10 @@ fun CryptoExchangeApp(
     val scope =
         rememberCoroutineScope()
 
-    /*
-     * Bottom navigation:
-     *
-     * 0 Home
-     * 1 Chart
-     * 2 Trade
-     * 3 Analysis
-     * 4 News
-     */
-
     var selectedTab
             by rememberSaveable {
 
-                mutableIntStateOf(
-                    0
-                )
+                mutableIntStateOf(0)
             }
 
     ModalNavigationDrawer(
@@ -599,14 +455,7 @@ fun CryptoExchangeApp(
 
             ModalDrawerSheet {
 
-                Spacer(
-                    Modifier.height(
-                        18.dp
-                    )
-                )
-
                 Text(
-
                     "Crypto Exchange",
 
                     modifier =
@@ -623,20 +472,13 @@ fun CryptoExchangeApp(
 
                 HorizontalDivider()
 
-                // ============================================
-                // PROFILE
-                // ============================================
-
                 NavigationDrawerItem(
 
                     label = {
-                        Text(
-                            "Profile"
-                        )
+                        Text("Profile")
                     },
 
-                    selected =
-                        false,
+                    selected = false,
 
                     onClick = {
 
@@ -654,20 +496,13 @@ fun CryptoExchangeApp(
                     }
                 )
 
-                // ============================================
-                // SETTINGS
-                // ============================================
-
                 NavigationDrawerItem(
 
                     label = {
-                        Text(
-                            "Settings"
-                        )
+                        Text("Settings")
                     },
 
-                    selected =
-                        false,
+                    selected = false,
 
                     onClick = {
 
@@ -685,20 +520,13 @@ fun CryptoExchangeApp(
                     }
                 )
 
-                // ============================================
-                // CONNECTION
-                // ============================================
-
                 NavigationDrawerItem(
 
                     label = {
-                        Text(
-                            "Connection"
-                        )
+                        Text("Connection")
                     },
 
-                    selected =
-                        false,
+                    selected = false,
 
                     onClick = {
 
@@ -715,37 +543,6 @@ fun CryptoExchangeApp(
                         )
                     }
                 )
-
-                // ============================================
-                // DEMO ACCOUNT
-                // ============================================
-
-                NavigationDrawerItem(
-
-                    label = {
-                        Text(
-                            "Demo Account"
-                        )
-                    },
-
-                    selected =
-                        false,
-
-                    onClick = {
-
-                        scope.launch {
-                            drawerState.close()
-                        }
-                    },
-
-                    icon = {
-
-                        Icon(
-                            Icons.Default.AccountBalanceWallet,
-                            null
-                        )
-                    }
-                )
             }
         }
 
@@ -753,17 +550,12 @@ fun CryptoExchangeApp(
 
         Scaffold(
 
-            // =================================================
-            // BOTTOM NAVIGATION
-            // =================================================
-
             bottomBar = {
 
                 NavigationBar {
 
                     val names =
                         listOf(
-
                             "Home",
                             "Chart",
                             "Trade",
@@ -773,7 +565,6 @@ fun CryptoExchangeApp(
 
                     val icons =
                         listOf(
-
                             Icons.Default.Home,
                             Icons.Default.ShowChart,
                             Icons.Default.SwapHoriz,
@@ -782,7 +573,6 @@ fun CryptoExchangeApp(
                         )
 
                     names.forEachIndexed {
-
                             index,
                             name ->
 
@@ -801,19 +591,14 @@ fun CryptoExchangeApp(
                             icon = {
 
                                 Icon(
-
                                     icons[index],
-
-                                    contentDescription =
-                                        name
+                                    name
                                 )
                             },
 
                             label = {
 
-                                Text(
-                                    name
-                                )
+                                Text(name)
                             }
                         )
                     }
@@ -823,12 +608,7 @@ fun CryptoExchangeApp(
         ) { padding ->
 
             Box(
-
-                Modifier
-                    .fillMaxSize()
-                    .padding(
-                        padding
-                    )
+                Modifier.padding(padding)
             ) {
 
                 when (
@@ -838,7 +618,6 @@ fun CryptoExchangeApp(
                     0 -> {
 
                         HomeScreen(
-
                             coins =
                                 coins,
 
@@ -848,40 +627,31 @@ fun CryptoExchangeApp(
                             onMenuClick = {
 
                                 scope.launch {
-
                                     drawerState.open()
                                 }
                             }
                         )
                     }
 
-                    1 -> {
-
+                    1 ->
                         PlaceholderScreen(
                             "Chart"
                         )
-                    }
 
-                    2 -> {
-
+                    2 ->
                         PlaceholderScreen(
                             "Trade"
                         )
-                    }
 
-                    3 -> {
-
+                    3 ->
                         PlaceholderScreen(
                             "Analysis"
                         )
-                    }
 
-                    4 -> {
-
+                    4 ->
                         PlaceholderScreen(
                             "News"
                         )
-                    }
                 }
             }
         }
@@ -903,10 +673,6 @@ fun HomeScreen(
 
 ) {
 
-    // ========================================================
-    // DEMO BALANCE
-    // ========================================================
-
     var balance
             by rememberSaveable {
 
@@ -915,65 +681,34 @@ fun HomeScreen(
                 )
             }
 
-    // ========================================================
-    // SEARCH
-    // ========================================================
-
     var search
             by rememberSaveable {
 
-                mutableStateOf(
-                    ""
-                )
+                mutableStateOf("")
             }
-
-    // ========================================================
-    // FILTER
-    // ========================================================
 
     var filter
             by rememberSaveable {
 
-                mutableStateOf(
-                    "ALL"
-                )
+                mutableStateOf("ALL")
             }
-
-    // ========================================================
-    // PAGINATION
-    // ========================================================
 
     var visibleCount
             by rememberSaveable {
 
-                mutableIntStateOf(
-                    20
-                )
+                mutableIntStateOf(20)
             }
-
-    // ========================================================
-    // FILTER + SORT
-    // ========================================================
 
     val displayCoins =
         remember(
-
             coins,
-
             search,
-
             filter,
-
             visibleCount
-
         ) {
 
             var list =
                 coins
-
-            // ------------------------------------------------
-            // SEARCH
-            // ------------------------------------------------
 
             if (
                 search.isNotBlank()
@@ -985,47 +720,33 @@ fun HomeScreen(
                         it.symbol.contains(
                             search,
                             ignoreCase = true
+                        ) ||
+
+                        it.name.contains(
+                            search,
+                            ignoreCase = true
                         )
                     }
             }
 
-            // ------------------------------------------------
-            // FILTER
-            // ------------------------------------------------
-
             list =
-                when (
-                    filter
-                ) {
+                when (filter) {
 
-                    "GAINER" -> {
-
+                    "GAINER" ->
                         list.sortedByDescending {
-
                             it.change24h
                         }
-                    }
 
-                    "LOSER" -> {
-
+                    "LOSER" ->
                         list.sortedBy {
-
                             it.change24h
                         }
-                    }
 
-                    else -> {
-
+                    else ->
                         list.sortedBy {
-
                             it.rank
                         }
-                    }
                 }
-
-            // ------------------------------------------------
-            // PAGINATION
-            // ------------------------------------------------
 
             if (
                 search.isBlank()
@@ -1037,22 +758,18 @@ fun HomeScreen(
 
             } else {
 
-                list
+                list.take(
+                    1000
+                )
             }
         }
-
-    // ========================================================
-    // LIST
-    // ========================================================
 
     LazyColumn(
 
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(
-                    12.dp
-                )
+                .padding(12.dp)
 
     ) {
 
@@ -1076,10 +793,6 @@ fun HomeScreen(
 
             ) {
 
-                // --------------------------------------------
-                // MENU
-                // --------------------------------------------
-
                 Icon(
 
                     Icons.Default.Menu,
@@ -1089,58 +802,36 @@ fun HomeScreen(
 
                     modifier =
                         Modifier
-                            .size(
-                                32.dp
-                            )
+                            .size(32.dp)
                             .clickable {
-
                                 onMenuClick()
                             }
                 )
 
                 Spacer(
-                    Modifier.width(
-                        10.dp
-                    )
+                    Modifier.width(10.dp)
                 )
 
-                // --------------------------------------------
-                // APP TITLE
-                // --------------------------------------------
-
                 Column(
-
-                    Modifier.weight(
-                        1f
-                    )
+                    Modifier.weight(1f)
                 ) {
 
                     Text(
-
                         "Crypto Exchange",
-
                         fontSize =
                             19.sp,
-
                         fontWeight =
                             FontWeight.Bold
                     )
 
                     Text(
-
-                        "Live Binance WSS",
-
+                        "Binance Live WebSocket",
                         fontSize =
                             11.sp,
-
                         color =
                             Color.Gray
                     )
                 }
-
-                // --------------------------------------------
-                // CONNECTION STATUS
-                // --------------------------------------------
 
                 Text(
 
@@ -1151,8 +842,7 @@ fun HomeScreen(
 
                     color =
                         if (
-                            status ==
-                                "LIVE"
+                            status == "LIVE"
                         ) {
 
                             Color(
@@ -1186,10 +876,7 @@ fun HomeScreen(
             ) {
 
                 Column(
-
-                    Modifier.padding(
-                        14.dp
-                    )
+                    Modifier.padding(14.dp)
                 ) {
 
                     Row(
@@ -1207,12 +894,9 @@ fun HomeScreen(
                         Column {
 
                             Text(
-
                                 "Demo Balance",
-
                                 fontSize =
                                     12.sp,
-
                                 color =
                                     Color.Gray
                             )
@@ -1220,13 +904,9 @@ fun HomeScreen(
                             Text(
 
                                 "$" +
-
                                     String.format(
-
                                         Locale.US,
-
                                         "%,.2f",
-
                                         balance
                                     ),
 
@@ -1238,10 +918,6 @@ fun HomeScreen(
                             )
                         }
 
-                        // ------------------------------------
-                        // RESET
-                        // ------------------------------------
-
                         Button(
 
                             onClick = {
@@ -1250,36 +926,21 @@ fun HomeScreen(
                                     10000.0
                             },
 
-                            /*
-                             * Reset only works when balance
-                             * is <= $100.
-                             */
-
                             enabled =
-                                balance <=
-                                    100.0
+                                balance <= 100.0
 
                         ) {
 
-                            Text(
-                                "Reset"
-                            )
+                            Text("Reset")
                         }
                     }
 
                     Spacer(
-                        Modifier.height(
-                            12.dp
-                        )
+                        Modifier.height(12.dp)
                     )
-
-                    // ----------------------------------------
-                    // PROFIT / LOSS PERIODS
-                    // ----------------------------------------
 
                     val periods =
                         listOf(
-
                             "1h",
                             "4h",
                             "8h",
@@ -1297,9 +958,7 @@ fun HomeScreen(
                         )
 
                     periods
-                        .chunked(
-                            4
-                        )
+                        .chunked(4)
                         .forEach { row ->
 
                             Row(
@@ -1320,20 +979,15 @@ fun HomeScreen(
                                     ) {
 
                                         Text(
-
                                             it,
-
                                             fontSize =
                                                 11.sp,
-
                                             color =
                                                 Color.Gray
                                         )
 
                                         Text(
-
                                             "+0.00%",
-
                                             fontSize =
                                                 12.sp
                                         )
@@ -1342,9 +996,7 @@ fun HomeScreen(
                             }
 
                             Spacer(
-                                Modifier.height(
-                                    7.dp
-                                )
+                                Modifier.height(7.dp)
                             )
                         }
                 }
@@ -1352,7 +1004,7 @@ fun HomeScreen(
         }
 
         // ====================================================
-        // GLOBAL MARKET
+        // MARKET
         // ====================================================
 
         item {
@@ -1368,79 +1020,52 @@ fun HomeScreen(
             ) {
 
                 Column(
-
-                    Modifier.padding(
-                        14.dp
-                    )
+                    Modifier.padding(14.dp)
                 ) {
 
                     Text(
-
                         "Global Market",
-
                         fontWeight =
                             FontWeight.Bold
                     )
 
                     Spacer(
-                        Modifier.height(
-                            10.dp
-                        )
+                        Modifier.height(10.dp)
                     )
 
                     Row(
-
                         Modifier.fillMaxWidth(),
-
                         horizontalArrangement =
                             Arrangement.SpaceBetween
-
                     ) {
 
                         MarketValue(
-                            "Global MC",
-                            "—"
+                            "Live Markets",
+                            coins.size.toString()
                         )
 
                         MarketValue(
-                            "BTC Dom.",
-                            "—"
-                        )
-
-                        MarketValue(
-                            "ETH Dom.",
-                            "—"
-                        )
-                    }
-
-                    Spacer(
-                        Modifier.height(
-                            10.dp
-                        )
-                    )
-
-                    Row(
-
-                        Modifier.fillMaxWidth(),
-
-                        horizontalArrangement =
-                            Arrangement.SpaceBetween
-
-                    ) {
-
-                        MarketValue(
-                            "Alt Dom.",
-                            "—"
+                            "BTC",
+                            findCoin(
+                                coins,
+                                "BTC"
+                            )
+                                ?.let {
+                                    "$" +
+                                        formatPrice(
+                                            it.price
+                                        )
+                                }
+                                ?: "—"
                         )
 
                         MarketValue(
                             "24h Volume",
-                            "—"
-                        )
-
-                        MarketValue(
-                            "24h Change",
-                            "—"
+                            formatLarge(
+                                coins.sumOf {
+                                    it.volume24h
+                                }
+                            )
                         )
                     }
                 }
@@ -1448,10 +1073,14 @@ fun HomeScreen(
         }
 
         // ====================================================
-        // SEARCH + FILTER
+        // SEARCH
         // ====================================================
 
         item {
+
+            Spacer(
+                Modifier.height(8.dp)
+            )
 
             OutlinedTextField(
 
@@ -1460,8 +1089,7 @@ fun HomeScreen(
 
                 onValueChange = {
 
-                    search =
-                        it
+                    search = it
 
                     visibleCount =
                         20
@@ -1470,11 +1098,9 @@ fun HomeScreen(
                 modifier =
                     Modifier.fillMaxWidth(),
 
-                singleLine =
-                    true,
+                singleLine = true,
 
                 placeholder = {
-
                     Text(
                         "Search crypto..."
                     )
@@ -1483,37 +1109,25 @@ fun HomeScreen(
                 leadingIcon = {
 
                     Icon(
-
                         Icons.Default.Search,
-
                         null
                     )
                 }
             )
 
             Spacer(
-                Modifier.height(
-                    8.dp
-                )
+                Modifier.height(8.dp)
             )
 
             Row(
-
                 horizontalArrangement =
-                    Arrangement.spacedBy(
-                        8.dp
-                    )
+                    Arrangement.spacedBy(8.dp)
             ) {
-
-                // --------------------------------------------
-                // ALL
-                // --------------------------------------------
 
                 FilterChip(
 
                     selected =
-                        filter ==
-                            "ALL",
+                        filter == "ALL",
 
                     onClick = {
 
@@ -1525,22 +1139,14 @@ fun HomeScreen(
                     },
 
                     label = {
-
-                        Text(
-                            "All"
-                        )
+                        Text("All")
                     }
                 )
-
-                // --------------------------------------------
-                // GAINER
-                // --------------------------------------------
 
                 FilterChip(
 
                     selected =
-                        filter ==
-                            "GAINER",
+                        filter == "GAINER",
 
                     onClick = {
 
@@ -1552,22 +1158,14 @@ fun HomeScreen(
                     },
 
                     label = {
-
-                        Text(
-                            "Gainer"
-                        )
+                        Text("Gainer")
                     }
                 )
-
-                // --------------------------------------------
-                // LOSER
-                // --------------------------------------------
 
                 FilterChip(
 
                     selected =
-                        filter ==
-                            "LOSER",
+                        filter == "LOSER",
 
                     onClick = {
 
@@ -1579,18 +1177,13 @@ fun HomeScreen(
                     },
 
                     label = {
-
-                        Text(
-                            "Loser"
-                        )
+                        Text("Loser")
                     }
                 )
             }
 
             Spacer(
-                Modifier.height(
-                    6.dp
-                )
+                Modifier.height(6.dp)
             )
 
             Text(
@@ -1606,7 +1199,7 @@ fun HomeScreen(
         }
 
         // ====================================================
-        // CRYPTO LIST
+        // COINS
         // ====================================================
 
         items(
@@ -1614,7 +1207,6 @@ fun HomeScreen(
             displayCoins,
 
             key = {
-
                 it.symbol
             }
 
@@ -1626,7 +1218,7 @@ fun HomeScreen(
         }
 
         // ====================================================
-        // NEXT / PREVIOUS
+        // PAGINATION
         // ====================================================
 
         if (
@@ -1651,38 +1243,24 @@ fun HomeScreen(
 
                 ) {
 
-                    // ----------------------------------------
-                    // PREVIOUS
-                    // ----------------------------------------
-
                     OutlinedButton(
 
                         onClick = {
 
                             visibleCount =
                                 maxOf(
-
                                     20,
-
-                                    visibleCount -
-                                        50
+                                    visibleCount - 50
                                 )
                         },
 
                         enabled =
-                            visibleCount >
-                                20
+                            visibleCount > 20
 
                     ) {
 
-                        Text(
-                            "Previous"
-                        )
+                        Text("Previous")
                     }
-
-                    // ----------------------------------------
-                    // COUNT
-                    // ----------------------------------------
 
                     Text(
 
@@ -1695,16 +1273,12 @@ fun HomeScreen(
                             12.sp
                     )
 
-                    // ----------------------------------------
-                    // NEXT
-                    // ----------------------------------------
-
                     Button(
 
                         onClick = {
 
-                            visibleCount +=
-                                50
+                            visibleCount += 50
+
                         },
 
                         enabled =
@@ -1713,9 +1287,7 @@ fun HomeScreen(
 
                     ) {
 
-                        Text(
-                            "Next 50"
-                        )
+                        Text("Next 50")
                     }
                 }
             }
@@ -1745,10 +1317,6 @@ fun CryptoRow(
 
     ) {
 
-        // ====================================================
-        // RANK
-        // ====================================================
-
         Text(
 
             "#${coin.rank}",
@@ -1760,92 +1328,81 @@ fun CryptoRow(
                 Color.Gray,
 
             modifier =
-                Modifier.width(
-                    38.dp
-                )
+                Modifier.width(38.dp)
         )
 
-        // ====================================================
-        // TEMPORARY LOGO
-        // ====================================================
-
-        /*
-         * Binance ticker mein CoinGecko logo URL nahi hota.
-         *
-         * Isliye abhi symbol ka first letter.
-         *
-         * CoinGecko logo mapping next step mein add karenge.
-         */
-
-        Box(
-
-            Modifier
-                .size(
-                    32.dp
-                )
-                .clip(
-                    CircleShape
-                ),
-
-            contentAlignment =
-                Alignment.Center
-
+        if (
+            coin.logo.isNotBlank()
         ) {
 
-            Text(
+            AsyncImage(
 
-                coin.symbol.take(
-                    1
-                ),
+                model =
+                    coin.logo,
 
-                fontWeight =
-                    FontWeight.Bold
+                contentDescription =
+                    coin.name,
+
+                modifier =
+                    Modifier
+                        .size(32.dp)
+                        .clip(
+                            CircleShape
+                        ),
+
+                contentScale =
+                    ContentScale.Crop
             )
+
+        } else {
+
+            Box(
+
+                Modifier
+                    .size(32.dp)
+                    .clip(
+                        CircleShape
+                    ),
+
+                contentAlignment =
+                    Alignment.Center
+
+            ) {
+
+                Text(
+                    coin.symbol
+                        .take(1),
+
+                    fontWeight =
+                        FontWeight.Bold
+                )
+            }
         }
 
         Spacer(
-            Modifier.width(
-                8.dp
-            )
+            Modifier.width(8.dp)
         )
 
-        // ====================================================
-        // NAME / SYMBOL
-        // ====================================================
-
         Column(
-
-            Modifier.weight(
-                1f
-            )
+            Modifier.weight(1f)
         ) {
 
             Text(
-
-                coin.symbol,
-
+                coin.name,
                 fontWeight =
                     FontWeight.Bold
             )
 
             Text(
-
-                "${coin.symbol}/USDT",
-
+                coin.symbol,
                 fontSize =
                     10.sp,
-
                 color =
                     Color.Gray
             )
         }
 
-        // ====================================================
-        // PRICE
-        // ====================================================
-
         Column(
-
             horizontalAlignment =
                 Alignment.End
         ) {
@@ -1860,18 +1417,11 @@ fun CryptoRow(
                     FontWeight.Bold
             )
 
-            // ----------------------------------------------
-            // 24H CHANGE
-            // ----------------------------------------------
-
             Text(
 
                 String.format(
-
                     Locale.US,
-
                     "%+.2f%%",
-
                     coin.change24h
                 ),
 
@@ -1880,8 +1430,7 @@ fun CryptoRow(
 
                 color =
                     if (
-                        coin.change24h >=
-                            0
+                        coin.change24h >= 0
                     ) {
 
                         Color(
@@ -1913,30 +1462,21 @@ fun MarketValue(
 ) {
 
     Column(
-
-        Modifier.width(
-            100.dp
-        )
+        Modifier.width(100.dp)
     ) {
 
         Text(
-
             title,
-
             fontSize =
                 10.sp,
-
             color =
                 Color.Gray
         )
 
         Text(
-
             value,
-
             fontSize =
                 12.sp,
-
             fontWeight =
                 FontWeight.Bold
         )
@@ -1962,12 +1502,9 @@ fun PlaceholderScreen(
     ) {
 
         Text(
-
             title,
-
             fontSize =
                 20.sp,
-
             fontWeight =
                 FontWeight.Bold
         )
@@ -1975,41 +1512,83 @@ fun PlaceholderScreen(
 }
 
 // ============================================================
-// PRICE FORMAT
+// HELPERS
 // ============================================================
+
+fun findCoin(
+    coins: List<CryptoCoin>,
+    symbol: String
+): CryptoCoin? {
+
+    return coins.firstOrNull {
+        it.symbol.equals(
+            symbol,
+            ignoreCase = true
+        )
+    }
+}
 
 fun formatPrice(
     value: Double
 ): String {
 
-    return if (
-        value >= 1.0
-    ) {
+    if (value >= 1.0) {
 
-        String.format(
-
+        return String.format(
             Locale.US,
-
             "%,.4f",
-
             value
         )
+    }
 
-    } else {
+    return String.format(
+        Locale.US,
+        "%.8f",
+        value
+    )
+        .trimEnd('0')
+        .trimEnd('.')
+}
 
-        String.format(
+fun formatLarge(
+    value: Double
+): String {
 
-            Locale.US,
+    return when {
 
-            "%.8f",
-
-            value
-        )
-            .trimEnd(
-                '0'
+        value >= 1_000_000_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fT",
+                value / 1_000_000_000_000
             )
-            .trimEnd(
-                '.'
+
+        value >= 1_000_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fB",
+                value / 1_000_000_000
+            )
+
+        value >= 1_000_000 ->
+            String.format(
+                Locale.US,
+                "%.2fM",
+                value / 1_000_000
+            )
+
+        value >= 1_000 ->
+            String.format(
+                Locale.US,
+                "%.2fK",
+                value / 1_000
+            )
+
+        else ->
+            String.format(
+                Locale.US,
+                "%.2f",
+                value
             )
     }
 }
