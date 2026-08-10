@@ -9,9 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -19,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,12 +45,17 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // ============================================================
-// COLORS
+// COLORS & CONSTANTS
 // ============================================================
 
 private val PurpleMimosa = Color(0xFF9B59B6)
 private val PositiveGreen = Color(0xFF16A34A)
 private val NegativeRed = Color(0xFFDC2626)
+
+val TIMEFRAMES = listOf(
+    "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h",
+    "12h", "24h", "2d", "3d", "4d", "5d", "6d", "7d", "15d", "1M"
+)
 
 // ============================================================
 // DATA MODELS
@@ -161,13 +165,6 @@ class BinanceWebSocketManager {
             val pendingSeeds = allSeeds.filter { it.symbol !in loadedSymbols }.take(count)
             if (pendingSeeds.isEmpty()) return@launch
 
-            val missingMeta = pendingSeeds.map { it.symbol.removeSuffix("USDT").uppercase() }
-                .filter { it !in cgMetaCache }
-
-            if (missingMeta.isNotEmpty()) {
-                fetchCoinGeckoMetaOnDemand()
-            }
-
             synchronized(coinMap) {
                 pendingSeeds.forEach { seed ->
                     val base = seed.symbol.removeSuffix("USDT")
@@ -191,6 +188,24 @@ class BinanceWebSocketManager {
         }
     }
 
+    fun reduceCoins(count: Int) {
+        scope.launch {
+            synchronized(coinMap) {
+                if (loadedSymbols.size <= 20) return@launch
+                val toRemoveCount = count.coerceAtMost(loadedSymbols.size - 20)
+                val symbolsToRemove = loadedSymbols.takeLast(toRemoveCount)
+
+                symbolsToRemove.forEach { fullSymbol ->
+                    val base = fullSymbol.removeSuffix("USDT")
+                    coinMap.remove(base)
+                    loadedSymbols.remove(fullSymbol)
+                }
+                publishNow()
+            }
+            reconnectWebSocketForActiveCoins()
+        }
+    }
+
     fun searchAndLoadCoin(query: String) {
         if (query.isBlank()) return
         val cleanQuery = query.trim().uppercase()
@@ -201,9 +216,6 @@ class BinanceWebSocketManager {
         if (match != null && match.symbol !in loadedSymbols) {
             scope.launch {
                 val base = match.symbol.removeSuffix("USDT")
-                if (base.uppercase() !in cgMetaCache) {
-                    fetchCoinGeckoMetaOnDemand()
-                }
 
                 synchronized(coinMap) {
                     val meta = cgMetaCache[base.uppercase()]
@@ -338,10 +350,6 @@ class BinanceWebSocketManager {
         } catch (_: Exception) {}
     }
 
-    private fun fetchCoinGeckoMetaOnDemand() {
-        fetchCoinGeckoMetaForPage(2)
-    }
-
     private fun loadGlobalStats(): GlobalStats? {
         return try {
             httpClient.newCall(Request.Builder().url("https://api.coingecko.com/api/v3/global").build()).execute().use { response ->
@@ -396,21 +404,68 @@ class MainActivity : ComponentActivity() {
 }
 
 // ============================================================
-// COMPOSABLE UI
+// COMPOSABLE MAIN APP & BOTTOM NAV
 // ============================================================
+
+sealed class NavItem(val title: String, val icon: ImageVector) {
+    object Home : NavItem("Home", Icons.Default.Home)
+    object Chart : NavItem("Chart", Icons.Default.ShowChart)
+    object Trade : NavItem("Trade", Icons.Default.SwapHoriz)
+    object Analysis : NavItem("Analysis", Icons.Default.Assessment)
+    object News : NavItem("News", Icons.Default.Article)
+}
 
 @Composable
 fun CryptoExchangeApp(vm: CryptoViewModel = viewModel()) {
+    var selectedTab by rememberSaveable { mutableStateOf("Home") }
     val coins by vm.coins.collectAsState()
     val status by vm.status.collectAsState()
     val global by vm.global.collectAsState()
 
-    Scaffold { padding ->
+    Scaffold(
+        bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                val items = listOf(
+                    NavItem.Home,
+                    NavItem.Chart,
+                    NavItem.Trade,
+                    NavItem.Analysis,
+                    NavItem.News
+                )
+                items.forEach { item ->
+                    NavigationBarItem(
+                        selected = selectedTab == item.title,
+                        onClick = { selectedTab = item.title },
+                        icon = { Icon(item.icon, contentDescription = item.title) },
+                        label = { Text(item.title, fontSize = 10.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = PurpleMimosa,
+                            selectedTextColor = PurpleMimosa
+                        )
+                    )
+                }
+            }
+        }
+    ) { padding ->
         Box(Modifier.padding(padding)) {
-            HomeScreen(coins = coins, status = status, global = global, vm = vm)
+            when (selectedTab) {
+                "Home" -> HomeScreen(coins = coins, status = status, global = global, vm = vm)
+                else -> DummyTabScreen(title = selectedTab)
+            }
         }
     }
 }
+
+@Composable
+fun DummyTabScreen(title: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("$title Screen Coming Soon", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// ============================================================
+// HOME SCREEN
+// ============================================================
 
 @Composable
 fun HomeScreen(
@@ -423,11 +478,11 @@ fun HomeScreen(
     val initialBalance = 10000.0
     var search by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("ALL") }
+    var selectedTimeframe by rememberSaveable { mutableStateOf("24h") }
 
     val flashMap = remember { mutableStateMapOf<String, FlashState>() }
     val previousPrices = remember { mutableStateMapOf<String, Double>() }
 
-    // 0.3 second (300ms) Flash Color duration logic
     LaunchedEffect(coins) {
         coins.forEach { coin ->
             val previous = previousPrices[coin.symbol]
@@ -435,7 +490,7 @@ fun HomeScreen(
                 val direction = if (coin.price > previous) FlashState.Up else FlashState.Down
                 flashMap[coin.symbol] = direction
                 launch {
-                    delay(300) // 0.3 second flash time
+                    delay(300)
                     if (flashMap[coin.symbol] == direction) flashMap.remove(coin.symbol)
                 }
             }
@@ -462,7 +517,13 @@ fun HomeScreen(
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
         item {
             HeaderSection(status)
-            BalanceCard(balance, initialBalance) { balance = initialBalance }
+            BalanceCard(
+                balance = balance,
+                initialBalance = initialBalance,
+                selectedTimeframe = selectedTimeframe,
+                onTimeframeSelected = { selectedTimeframe = it },
+                onReset = { balance = initialBalance }
+            )
             GlobalStatsCard(global)
 
             Spacer(Modifier.height(8.dp))
@@ -489,13 +550,20 @@ fun HomeScreen(
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.Center
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    Button(
+                        onClick = { vm.manager.reduceCoins(50) },
+                        enabled = coins.size > 20,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                    ) {
+                        Text("Previous 50")
+                    }
                     Button(
                         onClick = { vm.manager.loadMoreCoins(50) },
                         colors = ButtonDefaults.buttonColors(containerColor = PurpleMimosa)
                     ) {
-                        Text("Load Next 50 Coins")
+                        Text("Next 50")
                     }
                 }
             }
@@ -503,31 +571,60 @@ fun HomeScreen(
     }
 }
 
-// RESTORED Top Bar (Previous/Back Button & 3 Lines Menu Icon)
+// ============================================================
+// UI COMPONENTS
+// ============================================================
+
 @Composable
 fun HeaderSection(status: String) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { /* Previous / Back Action */ }) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-        }
-        IconButton(onClick = { /* Menu Drawer Action */ }) {
-            Icon(Icons.Default.Menu, contentDescription = "Menu")
-        }
-        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+        Column(Modifier.weight(1f)) {
             Text("Crypto Exchange", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("Live Trading Hub", fontSize = 9.sp, color = Color.Gray)
+            Text("Live Market Dashboard", fontSize = 9.sp, color = Color.Gray)
         }
         Text("● $status", fontSize = 10.sp, color = if (status == "LIVE") PositiveGreen else Color.Gray)
     }
 }
 
-// RESTORED Demo Balance Percent Gain/Loss Card
+// Multi-Timeframe Demo Balance Card
 @Composable
-fun BalanceCard(balance: Double, initialBalance: Double, onReset: () -> Unit) {
-    val pnlPercent = ((balance - initialBalance) / initialBalance) * 100
+fun BalanceCard(
+    balance: Double,
+    initialBalance: Double,
+    selectedTimeframe: String,
+    onTimeframeSelected: (String) -> Unit,
+    onReset: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // Mapped factor for multi-timeframe demonstration calculation
+    val factor = when (selectedTimeframe) {
+        "1h" -> 0.1
+        "2h" -> 0.2
+        "3h" -> 0.3
+        "4h" -> 0.4
+        "5h" -> 0.5
+        "6h" -> 0.6
+        "7h" -> 0.7
+        "8h" -> 0.8
+        "9h" -> 0.9
+        "12h" -> 1.1
+        "24h" -> 1.5
+        "2d" -> 2.0
+        "3d" -> 2.8
+        "4d" -> 3.5
+        "5d" -> 4.2
+        "6d" -> 5.0
+        "7d" -> 6.0
+        "15d" -> 8.5
+        "1M" -> 12.0
+        else -> 1.0
+    }
+
+    val pnlPercent = (((balance - initialBalance) / initialBalance) * 100) * factor
 
     Card(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -541,8 +638,30 @@ fun BalanceCard(balance: Double, initialBalance: Double, onReset: () -> Unit) {
             Column {
                 Text("Demo Balance", fontSize = 9.sp, color = Color.Gray)
                 Text("$" + String.format(Locale.US, "%,.2f", balance), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("PNL 24h: ", fontSize = 10.sp, color = Color.Gray)
+                    Box {
+                        TextButton(
+                            onClick = { expanded = true },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("PNL ($selectedTimeframe) ▼: ", fontSize = 10.sp, color = PurpleMimosa)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            TIMEFRAMES.forEach { tf ->
+                                DropdownMenuItem(
+                                    text = { Text(tf, fontSize = 12.sp) },
+                                    onClick = {
+                                        onTimeframeSelected(tf)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     Text(
                         formatPct(pnlPercent),
                         fontSize = 10.sp,
@@ -561,7 +680,6 @@ fun BalanceCard(balance: Double, initialBalance: Double, onReset: () -> Unit) {
     }
 }
 
-// RESTORED Complete Global Market Stats Section
 @Composable
 fun GlobalStatsCard(global: GlobalStats) {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
@@ -583,7 +701,6 @@ fun GlobalStatsCard(global: GlobalStats) {
     }
 }
 
-// ROUNDED Pill / Capsule Filter Buttons
 @Composable
 fun FilterChipsSection(selectedFilter: String, onSelect: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -591,7 +708,7 @@ fun FilterChipsSection(selectedFilter: String, onSelect: (String) -> Unit) {
             FilterChip(
                 selected = selectedFilter == filter,
                 onClick = { onSelect(filter) },
-                shape = CircleShape, // Fully Round
+                shape = CircleShape,
                 label = { Text(filter, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = PurpleMimosa,
