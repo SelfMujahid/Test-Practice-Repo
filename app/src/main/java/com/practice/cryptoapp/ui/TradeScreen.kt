@@ -1368,6 +1368,35 @@ private fun TradeInfoRow(
     )
 }
 
+private fun formatPrice(value: Double): String {
+
+    if (
+        value.isNaN() ||
+        value.isInfinite()
+    ) {
+        return "0"
+    }
+
+    return if (value >= 1.0) {
+
+        String.format(
+            Locale.US,
+            "%,.2f",
+            value
+        )
+
+    } else {
+
+        String.format(
+            Locale.US,
+            "%.8f",
+            value
+        )
+            .trimEnd('0')
+            .trimEnd('.')
+    }
+}
+
 // ============================================================
 // POSITION CARD
 // ============================================================
