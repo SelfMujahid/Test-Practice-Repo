@@ -516,7 +516,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class FlashState { None, Up, Down }
+enum class FlashState { None, Up, Down }
 
 @Composable
 fun CryptoExchangeApp(
