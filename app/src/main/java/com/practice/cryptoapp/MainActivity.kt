@@ -188,14 +188,14 @@ class BinanceWebSocketManager {
         }
     }
 
-    fun reduceCoins(count: Int) {
+        fun reduceCoins(count: Int) {
         scope.launch {
             synchronized(coinMap) {
                 if (loadedSymbols.size <= 20) return@launch
                 val toRemoveCount = count.coerceAtMost(loadedSymbols.size - 20)
-                val symbolsToRemove = loadedSymbols.takeLast(toRemoveCount)
+                val symbolsToRemove = loadedSymbols.toList().takeLast(toRemoveCount)
 
-                symbolsToRemove.forEach { fullSymbol ->
+                symbolsToRemove.forEach { fullSymbol: String ->
                     val base = fullSymbol.removeSuffix("USDT")
                     coinMap.remove(base)
                     loadedSymbols.remove(fullSymbol)
@@ -205,6 +205,7 @@ class BinanceWebSocketManager {
             reconnectWebSocketForActiveCoins()
         }
     }
+
 
     fun searchAndLoadCoin(query: String) {
         if (query.isBlank()) return
