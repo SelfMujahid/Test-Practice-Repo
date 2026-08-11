@@ -34,27 +34,42 @@ private val Red = Color(0xFFDC2626)
 private val ScreenBackground = Color(0xFFF5F5F7)
 private val CardBackground = Color.White
 
-// ============================================================
-// TRADE SCREEN
-// ============================================================
-
 @Composable
 fun TradeScreen(
     vm: TradeViewModel = viewModel(),
     cryptoVm: CryptoViewModel
 ) {
-    // Live coins from home (top 20 or more)
     val coins by cryptoVm.coins.collectAsState()
     val symbol by vm.symbol.collectAsState()
 
-    // Selected coin for header (live)
-    val selectedCoin = remember(coins, symbol) {
-        coins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
+    // --- Selected coin data (live preferred, static fallback) ---
+    val allStaticCoins = remember {
+        cryptoVm.manager.getAllSymbolsData().map { seed ->
+            val base = seed.symbol.removeSuffix("USDT")
+            val meta = cryptoVm.manager.getCoinMeta(base)
+            CryptoCoin(
+                symbol = base,
+                name = meta?.name ?: base,
+                logo = meta?.logo ?: "",
+                price = seed.lastPrice,
+                change24h = seed.change24h,
+                volume24h = seed.volume24h,
+                marketCap = meta?.marketCap ?: 0.0,
+                rank = meta?.marketCapRank ?: Int.MAX_VALUE
+            )
+        }
     }
-    val currentPrice = selectedCoin?.price ?: 0.0
-    val change24h = selectedCoin?.change24h ?: 0.0
-    val coinName = selectedCoin?.name ?: ""
-    val coinLogo = selectedCoin?.logo ?: ""
+
+    val selectedCoin = remember(coins, allStaticCoins, symbol) {
+        // First try to find in live coins
+        coins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
+            ?: allStaticCoins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
+            ?: CryptoCoin(symbol = symbol.removeSuffix("USDT"), name = symbol, logo = "", price = 0.0, change24h = 0.0, volume24h = 0.0, marketCap = 0.0, rank = Int.MAX_VALUE)
+    }
+    val currentPrice = selectedCoin.price
+    val change24h = selectedCoin.change24h
+    val coinName = selectedCoin.name
+    val coinLogo = selectedCoin.logo
 
     // Form state from TradeViewModel
     val mode by vm.mode.collectAsState()
@@ -76,22 +91,13 @@ fun TradeScreen(
     var selectedBottomTab by rememberSaveable { mutableStateOf(TradeBottomTab.POSITION) }
     var pairSearch by rememberSaveable { mutableStateOf("") }
 
-    // All symbols (name + symbol) for pair picker — from allSeeds + meta cache
-    val allSymbols = remember {
-        cryptoVm.manager.getAllSymbolsData().map { seed ->
-            val base = seed.symbol.removeSuffix("USDT")
-            val meta = cryptoVm.manager.getCoinMeta(base)
-            CryptoCoin(
-                symbol = base,
-                name = meta?.name ?: base,
-                logo = "", // logo not needed until search
-                price = 0.0,
-                change24h = 0.0,
-                volume24h = 0.0,
-                marketCap = meta?.marketCap ?: 0.0,
-                rank = meta?.marketCapRank ?: Int.MAX_VALUE
-            )
-        }.sortedWith(compareBy<CryptoCoin> { it.rank }.thenBy { it.symbol })
+    // Prepare default list: live coins (full) + rest symbols (compact)
+    val defaultList = remember(coins, allStaticCoins) {
+        val liveSymbols = coins.map { it.symbol }.toSet()
+        val livePart = coins.sortedWith(compareBy { it.rank }.thenBy { it.symbol })
+        val restPart = allStaticCoins.filter { it.symbol !in liveSymbols }
+            .map { it.copy(price = 0.0, change24h = 0.0, logo = "", marketCap = 0.0, rank = Int.MAX_VALUE) } // compact
+        livePart + restPart
     }
 
     Column(
@@ -165,38 +171,23 @@ fun TradeScreen(
     }
 
     // ============================================================
-    // PAIR SELECTOR DIALOG
+    // PAIR SELECTOR DIALOG (Fixed)
     // ============================================================
     if (showPairMenu) {
         val isSearchActive = pairSearch.isNotBlank()
 
-        // Filtered coins: when searching, show full details using allSeeds + cache
-        val displayCoins = remember(allSymbols, pairSearch) {
-            val baseList = if (isSearchActive) {
-                // Search: full details from allSeeds
-                cryptoVm.manager.getAllSymbolsData().mapNotNull { seed ->
-                    val base = seed.symbol.removeSuffix("USDT")
-                    if (!base.contains(pairSearch, ignoreCase = true) &&
-                        !(base + "USDT").contains(pairSearch, ignoreCase = true)
-                    ) return@mapNotNull null
-                    val meta = cryptoVm.manager.getCoinMeta(base)
-                    CryptoCoin(
-                        symbol = base,
-                        name = meta?.name ?: base,
-                        logo = meta?.logo ?: "",
-                        price = seed.lastPrice,
-                        change24h = seed.change24h,
-                        volume24h = seed.volume24h,
-                        marketCap = meta?.marketCap ?: 0.0,
-                        rank = meta?.marketCapRank ?: Int.MAX_VALUE
-                    )
-                }.sortedWith(compareBy<CryptoCoin> { it.rank }.thenBy { it.symbol })
+        val displayCoins = remember(defaultList, allStaticCoins, pairSearch, isSearchActive) {
+            if (isSearchActive) {
+                // Search: filter static list with full details
+                allStaticCoins.filter {
+                    it.symbol.contains(pairSearch, true) ||
+                    it.name.contains(pairSearch, true) ||
+                    (it.symbol + "USDT").contains(pairSearch, true)
+                }
             } else {
-                // No search: only symbol/name from allSymbols
-                allSymbols
+                // Default: live coins full details + rest compact
+                defaultList
             }
-            if (isSearchActive) baseList
-            else baseList.filter { it.symbol.contains(pairSearch, true) || it.name.contains(pairSearch, true) }
         }
 
         AlertDialog(
@@ -216,6 +207,7 @@ fun TradeScreen(
 
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(displayCoins, key = { it.symbol }) { coin ->
+                            val isLive = coins.any { it.symbol == coin.symbol }  // to show full if live
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -227,29 +219,24 @@ fun TradeScreen(
                                     .padding(vertical = 8.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Logo (only if search active and logo not blank)
-                                if (isSearchActive && coin.logo.isNotBlank()) {
+                                // Logo
+                                if (coin.logo.isNotBlank() && (isLive || isSearchActive)) {
                                     AsyncImage(
                                         model = coin.logo,
                                         contentDescription = coin.name,
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape),
+                                        modifier = Modifier.size(28.dp).clip(CircleShape),
                                         contentScale = ContentScale.Crop
                                     )
                                 } else {
                                     Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.LightGray),
+                                        modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.LightGray),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(Modifier.width(8.dp))
 
                                 // Name + Symbol
                                 Column(modifier = Modifier.weight(1f)) {
@@ -264,18 +251,13 @@ fun TradeScreen(
                                         fontSize = 10.sp,
                                         color = Color.Gray
                                     )
-                                    // Show market cap rank only when searching
-                                    if (isSearchActive && coin.rank != Int.MAX_VALUE) {
-                                        Text(
-                                            text = "Rank #${coin.rank}",
-                                            fontSize = 9.sp,
-                                            color = Color.Gray
-                                        )
+                                    if ((isLive || isSearchActive) && coin.rank != Int.MAX_VALUE) {
+                                        Text("Rank #${coin.rank}", fontSize = 9.sp, color = Color.Gray)
                                     }
                                 }
 
-                                // Price + Change (only when searching)
-                                if (isSearchActive) {
+                                // Price + Change (show if live or search active)
+                                if (isLive || isSearchActive) {
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text(
                                             text = formatPrice(coin.price),
@@ -298,9 +280,7 @@ fun TradeScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (pairSearch.isNotBlank()) {
-                        vm.setSymbol(pairSearch)
-                    }
+                    if (pairSearch.isNotBlank()) vm.setSymbol(pairSearch)
                     pairSearch = ""
                     showPairMenu = false
                 }) {
