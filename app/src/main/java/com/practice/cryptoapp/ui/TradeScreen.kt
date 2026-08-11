@@ -1175,42 +1175,37 @@ private fun OrderPanel(
             // AMOUNT
             // ------------------------------------------------
 
-            OutlinedTextField(
-                value =
-                    String.format(
-                        Locale.US,
-                        "%.6f",
-                        quantity
-                    ),
-                onValueChange = {
-                    it.toDoubleOrNull()
-                        ?.let(
-                            onQuantityChange
-                        )
-                },
-                modifier =
-                    Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = {
-                    Text(
-                        "Amount",
-                        fontSize =
-                            10.sp
-                    )
-                },
-                trailingIcon = {
-                    Text(
-                        "BTC",
-                        fontSize =
-                            9.sp
-                    )
-                },
-                textStyle =
-                    LocalTextStyle.current.copy(
-                        fontSize =
-                            11.sp
-                    )
-            )
+            var amountText by remember(quantity) { mutableStateOf(quantity.toString()) }
+
+OutlinedTextField(
+    value = amountText,
+    onValueChange = { input ->
+        amountText = input
+        input.toDoubleOrNull()?.let { onQuantityChange(it) }
+    },
+    modifier =
+        Modifier.fillMaxWidth(),
+    singleLine = true,
+    label = {
+        Text(
+            "Amount",
+            fontSize =
+                10.sp
+        )
+    },
+    trailingIcon = {
+        Text(
+            "BTC",
+            fontSize =
+                9.sp
+        )
+    },
+    textStyle =
+        LocalTextStyle.current.copy(
+            fontSize =
+                11.sp
+        )
+)
 
             Spacer(
                 Modifier.height(
