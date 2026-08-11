@@ -273,8 +273,8 @@ class TradeViewModel : ViewModel() {
     private val _message = MutableStateFlow("")
     val message: StateFlow<String> = _message.asStateFlow()
 
-    // Shared Demo Data
-    val demoBalance: StateFlow<Double> = DemoAccountStore.balance
+    // Shared Demo Data – directly from DemoAccountStore
+    val balance: StateFlow<Double> = DemoAccountStore.balance   // <--- ADDED
     val usedMargin: StateFlow<Double> = DemoAccountStore.usedMargin
     val position: StateFlow<DemoPosition?> = DemoAccountStore.position
     val pendingOrders: StateFlow<List<PendingOrder>> = DemoAccountStore.pendingOrders
