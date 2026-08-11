@@ -296,7 +296,7 @@ class TradeViewModel : ViewModel() {
         try {
             val json = JSONObject(text)
             val bidsArr = json.optJSONArray("bids")
-            val asksArr = json.optJSONArray("ask")
+            val asksArr = json.optJSONArray("asks")
             val bidList = mutableListOf<OrderBookLevel>()
             val askList = mutableListOf<OrderBookLevel>()
             for (i in 0 until (bidsArr?.length() ?: 0)) {
