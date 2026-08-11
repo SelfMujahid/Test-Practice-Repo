@@ -92,7 +92,6 @@ fun TradeScreen(
             onPairClick = { showPairMenu = true }
         )
 
-        // Main content
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -118,7 +117,7 @@ fun TradeScreen(
                 onOpen = { vm.openOrder(currentPrice) }
             )
 
-            // Placeholder for order book or just empty space
+            // Placeholder instead of order book (right side empty)
             Spacer(modifier = Modifier.weight(1f))
         }
 
@@ -148,7 +147,7 @@ fun TradeScreen(
         }
     }
 
-    // Pair selector dialog
+    // --- Pair selector dialog ---
     if (showPairMenu) {
         val allPairs = coins.map { it.symbol + "USDT" }
         val filteredPairs = allPairs.filter { it.contains(pairSearch, ignoreCase = true) }
@@ -195,7 +194,7 @@ fun TradeScreen(
         )
     }
 
-    // Leverage dialog
+    // --- Leverage dialog ---
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
@@ -228,7 +227,7 @@ fun TradeScreen(
 }
 
 // ============================================================
-// MODE BAR (unchanged but uses TradeMode)
+// MODE BAR
 // ============================================================
 @Composable
 private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
@@ -258,7 +257,7 @@ private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () ->
 }
 
 // ============================================================
-// MARKET HEADER – simplified
+// MARKET HEADER (simplified)
 // ============================================================
 @Composable
 private fun MarketHeader(
@@ -317,7 +316,7 @@ private fun MarketHeader(
 }
 
 // ============================================================
-// ORDER PANEL (same as before, uses currentPrice from coin)
+// ORDER PANEL
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -338,29 +337,322 @@ private fun OrderPanel(
     onLimitPriceChange: (String) -> Unit,
     onOpen: () -> Unit
 ) {
-    // ... (same as previous version, no changes needed – it already uses "price" from parameter)
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(9.dp)) {
+            Text("Place Order", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(7.dp))
+
+            // LONG/SHORT
+            Row(modifier = Modifier.fillMaxWidth()) {
+                SideButton("Long", side == PositionSide.LONG, Green) { onSideChange(PositionSide.LONG) }
+                Spacer(Modifier.width(5.dp))
+                SideButton("Short", side == PositionSide.SHORT, Red) { onSideChange(PositionSide.SHORT) }
+            }
+
+            Spacer(Modifier.height(7.dp))
+
+            // MARKET/LIMIT
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                SmallOrderType("Market", orderType == TradeOrderType.MARKET) { onOrderTypeChange(TradeOrderType.MARKET) }
+                SmallOrderType("Limit", orderType == TradeOrderType.LIMIT) { onOrderTypeChange(TradeOrderType.LIMIT) }
+            }
+
+            Spacer(Modifier.height(7.dp))
+
+            // Leverage
+            OutlinedButton(onClick = onLeverageClick, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 6.dp)) {
+                Text("${leverage}x", fontSize = 10.sp)
+            }
+
+            Spacer(Modifier.height(7.dp))
+
+            // Available
+            SmallStat("Available", "%,.2f".format(balance) + " USDT")
+
+            Spacer(Modifier.height(6.dp))
+
+            // Limit price input (if limit)
+            if (orderType == TradeOrderType.LIMIT) {
+                OutlinedTextField(
+                    value = limitPrice,
+                    onValueChange = onLimitPriceChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Price", fontSize = 10.sp) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
+            // Amount
+            var amountText by rememberSaveable { mutableStateOf(quantity.toString()) }
+            LaunchedEffect(quantity) {
+                if (amountText.toDoubleOrNull() == null || kotlin.math.abs(amountText.toDoubleOrNull()!! - quantity) > 0.000000001)
+                    amountText = quantity.toString()
+            }
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { input ->
+                    if (input.isEmpty() || input.matches(Regex("^\\d*(\\.\\d*)?$"))) {
+                        amountText = input
+                        input.toDoubleOrNull()?.let { if (it > 0.0) onQuantityChange(it) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Amount", fontSize = 10.sp) },
+                trailingIcon = { Text("BTC", fontSize = 9.sp) },
+                textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+            )
+            Spacer(Modifier.height(5.dp))
+
+            // Percentages
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf(25, 50, 75, 100).forEach { p ->
+                    TextButton(onClick = { onPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text("$p%", fontSize = 9.sp, color = PurpleMimosa)
+                    }
+                }
+            }
+
+            Slider(
+                value = quantity.toFloat().coerceIn(0.000001f, 1.0f),
+                onValueChange = { onQuantityChange(it.toDouble()) },
+                valueRange = 0.000001f..1.0f,
+                colors = SliderDefaults.colors(thumbColor = PurpleMimosa, activeTrackColor = PurpleMimosa)
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            val executionPrice = if (orderType == TradeOrderType.LIMIT) limitPrice.toDoubleOrNull() ?: price else price
+            val notional = executionPrice * quantity
+            val margin = if (leverage > 0) notional / leverage else notional
+
+            SmallStat("Size", "%,.2f".format(notional) + " USDT")
+            Spacer(Modifier.height(3.dp))
+            SmallStat("Margin", "%,.2f".format(margin) + " USDT")
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = onOpen,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = price > 0.0 && quantity > 0.0 && position == null,
+                colors = ButtonDefaults.buttonColors(containerColor = if (side == PositionSide.LONG) Green else Red),
+                contentPadding = PaddingValues(vertical = 10.dp)
+            ) {
+                Text(if (side == PositionSide.LONG) "OPEN LONG" else "OPEN SHORT", fontSize = 11.sp)
+            }
+        }
+    }
 }
 
 // ============================================================
-// BOTTOM TABS & CONTENT (unchanged, except PnL and close use currentPrice)
+// BOTTOM TABS
 // ============================================================
-// Keep them as they were; they already receive currentPrice, pnl, etc.
+private enum class TradeBottomTab { POSITION, PENDING, HISTORY }
+
+@Composable
+private fun BottomTradeTabs(selected: TradeBottomTab, onSelected: (TradeBottomTab) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(horizontal = 7.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        BottomTabButton("Active Position", selected == TradeBottomTab.POSITION) { onSelected(TradeBottomTab.POSITION) }
+        BottomTabButton("Pending", selected == TradeBottomTab.PENDING) { onSelected(TradeBottomTab.PENDING) }
+        BottomTabButton("History", selected == TradeBottomTab.HISTORY) { onSelected(TradeBottomTab.HISTORY) }
+    }
+}
+
+@Composable
+private fun RowScope.BottomTabButton(title: String, selected: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.weight(1f)) {
+        Text(
+            title,
+            fontSize = 9.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) PurpleMimosa else Color.Gray
+        )
+    }
+}
 
 // ============================================================
-// REST OF THE UI (ActivePositionContent, PendingContent, HistoryContent, etc.)
-// Keep them unchanged.
+// BOTTOM CONTENT
 // ============================================================
+@Composable
+private fun BottomTradeContent(
+    selected: TradeBottomTab,
+    position: DemoPosition?,
+    pendingOrders: List<PendingOrder>,
+    history: List<TradeHistory>,
+    currentPrice: Double,
+    pnl: Double,
+    onClose: () -> Unit,
+    onCancelPending: (Long) -> Unit
+) {
+    when (selected) {
+        TradeBottomTab.POSITION -> ActivePositionContent(position, currentPrice, pnl, onClose)
+        TradeBottomTab.PENDING -> PendingContent(pendingOrders, onCancelPending)
+        TradeBottomTab.HISTORY -> HistoryContent(history)
+    }
+}
 
 // ============================================================
-// FORMATTING (formatPrice, formatPct, formatSignedPct)
+// ACTIVE POSITION
+// ============================================================
+@Composable
+private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(9.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        if (position == null) {
+            Text("No active position", modifier = Modifier.fillMaxWidth().padding(14.dp), textAlign = TextAlign.Center, fontSize = 10.sp, color = Color.Gray)
+        } else {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        if (position.side == PositionSide.LONG) "LONG" else "SHORT",
+                        fontWeight = FontWeight.Bold,
+                        color = if (position.side == PositionSide.LONG) Green else Red
+                    )
+                    Text("${position.symbol} ${position.leverage}x", fontSize = 10.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    BottomValue("Entry", formatPrice(position.entryPrice))
+                    BottomValue("Mark", formatPrice(currentPrice))
+                    BottomValue("Qty", "%.6f".format(position.quantity))
+                    BottomValue("PnL", TradeViewModel.formatMoney(pnl), if (pnl >= 0) Green else Red)
+                }
+                Spacer(Modifier.height(7.dp))
+                Button(onClick = onClose, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                    Text("CLOSE POSITION", fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// PENDING
+// ============================================================
+@Composable
+private fun PendingContent(orders: List<PendingOrder>, onCancel: (Long) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(9.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        if (orders.isEmpty()) {
+            Text("No pending orders", modifier = Modifier.fillMaxWidth().padding(14.dp), textAlign = TextAlign.Center, fontSize = 10.sp, color = Color.Gray)
+        } else {
+            Column(modifier = Modifier.padding(8.dp)) {
+                orders.forEach { order ->
+                    PendingRow(order) { onCancel(order.id) }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingRow(order: PendingOrder, onCancel: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("${order.symbol} ${if (order.side == PositionSide.LONG) "LONG" else "SHORT"}", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text("Limit ${formatPrice(order.price)} • ${"%.6f".format(order.quantity)}", fontSize = 8.sp, color = Color.Gray)
+        }
+        Text("${order.leverage}x", fontSize = 9.sp)
+        TextButton(onClick = onCancel) { Text("Cancel", fontSize = 9.sp, color = Red) }
+    }
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+@Composable
+private fun HistoryContent(history: List<TradeHistory>) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(9.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        if (history.isEmpty()) {
+            Text("No trading history", modifier = Modifier.fillMaxWidth().padding(14.dp), textAlign = TextAlign.Center, fontSize = 10.sp, color = Color.Gray)
+        } else {
+            LazyColumn(modifier = Modifier.heightIn(max = 160.dp)) {
+                items(items = history, key = { it.id }) { item ->
+                    HistoryRow(item)
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(item: TradeHistory) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("${item.symbol} ${if (item.side == PositionSide.LONG) "LONG" else "SHORT"}", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text("${formatPrice(item.entryPrice)} → ${formatPrice(item.exitPrice)}", fontSize = 8.sp, color = Color.Gray)
+        }
+        Text(TradeViewModel.formatMoney(item.pnl), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (item.pnl >= 0) Green else Red)
+    }
+}
+
+// ============================================================
+// SMALL COMPONENTS
+// ============================================================
+@Composable
+private fun RowScope.SideButton(text: String, selected: Boolean, color: Color, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) color else Color(0xFFE7E7EA),
+            contentColor = if (selected) Color.White else Color.DarkGray
+        ),
+        shape = RoundedCornerShape(7.dp),
+        contentPadding = PaddingValues(vertical = 7.dp)
+    ) { Text(text, fontSize = 10.sp) }
+}
+
+@Composable
+private fun SmallOrderType(text: String, selected: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+        Text(text, fontSize = 9.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) PurpleMimosa else Color.Gray)
+    }
+}
+
+@Composable
+private fun SmallStat(label: String, value: String) {
+    Column {
+        Text(label, fontSize = 8.sp, color = Color.Gray)
+        Text(value, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun BottomValue(label: String, value: String, color: Color = Color.Black) {
+    Column {
+        Text(label, fontSize = 8.sp, color = Color.Gray)
+        Text(value, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = color)
+    }
+}
+
+// ============================================================
+// FORMATTING
 // ============================================================
 private fun formatPrice(value: Double): String {
     if (value.isNaN() || value.isInfinite()) return "0"
-    return if (value >= 1.0) {
-        "%,.2f".format(value)
-    } else {
-        "%.8f".format(value).trimEnd('0').trimEnd('.')
-    }
+    return if (value >= 1.0) "%,.2f".format(value) else "%.8f".format(value).trimEnd('0').trimEnd('.')
 }
 
 private fun formatPct(value: Double): String = "%+.2f%%".format(value)
