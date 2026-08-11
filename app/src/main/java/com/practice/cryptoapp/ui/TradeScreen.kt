@@ -119,30 +119,37 @@ fun TradeScreen(
         )
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            OrderPanel(
-                modifier = Modifier.weight(1f),
-                balance = balance,
-                price = currentPrice,
-                side = side,
-                orderType = orderType,
-                leverage = leverage,
-                quantity = quantity,
-                limitPrice = limitPrice,
-                position = position,
-                onSideChange = vm::setSide,
-                onOrderTypeChange = vm::setOrderType,
-                onLeverageClick = { showLeverage = true },
-                onQuantityChange = vm::setQuantity,
-                onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
-                onLimitPriceChange = vm::setLimitPrice,
-                onOpen = { vm.openOrder(currentPrice) }
-            )
-            Spacer(modifier = Modifier.weight(1f))
+    modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 7.dp),
+    horizontalArrangement = Arrangement.spacedBy(7.dp)
+) {
+    OrderPanel(
+        modifier = Modifier.weight(1f),
+        balance = balance,
+        price = currentPrice,
+        side = side,
+        orderType = orderType,
+        leverage = leverage,
+        quantity = quantity,
+        limitPrice = limitPrice,
+        position = position,
+        onSideChange = vm::setSide,
+        onOrderTypeChange = vm::setOrderType,
+        onLeverageClick = { showLeverage = true },
+        onQuantityChange = vm::setQuantity,
+        onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
+        onLimitPriceChange = vm::setLimitPrice,
+        onOpen = { vm.openOrder(currentPrice) }
+    )
+    // --- OrderBookPanel ki jagah Spacer hatao ---
+    OrderBookPanel(
+        modifier = Modifier.weight(1f),
+        symbol = symbol,
+        currentPrice = currentPrice,
+        bids = bids,
+        asks = asks
+    )
         }
 
         BottomTradeTabs(
