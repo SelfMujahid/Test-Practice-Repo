@@ -1219,30 +1219,32 @@ fun CryptoExchangeApp(
 
             when (selectedTab) {
 
-                "Home" ->
+    "Home" ->
 
-                    HomeScreen(
-                        coins =
-                            coins,
-                        status =
-                            status,
-                        global =
-                            global,
-                        vm =
-                            vm
-                    )
+        HomeScreen(
+            coins =
+                coins,
+            status =
+                status,
+            global =
+                global,
+            vm =
+                vm
+        )
 
-                "Trade" ->
+    "Trade" -> {
+        val tradeVm: com.practice.cryptoapp.ui.TradeViewModel = viewModel()
+        TradeScreen(vm = tradeVm)
+    }
 
-                    TradeScreen()
+    else ->
 
-                else ->
+        DummyTabScreen(
+            title =
+                selectedTab
+        )
+}
 
-                    DummyTabScreen(
-                        title =
-                            selectedTab
-                    )
-            }
         }
     }
 }
