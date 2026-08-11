@@ -78,6 +78,8 @@ fun TradeScreen(
     val quantity by vm.quantity.collectAsState()
     val limitPrice by vm.limitPrice.collectAsState()
     val balance by vm.balance.collectAsState()
+    val bids by vm.bids.collectAsState()
+    val asks by vm.asks.collectAsState()
     val position by vm.position.collectAsState()
     val pendingOrders by vm.pendingOrders.collectAsState()
     val history by vm.history.collectAsState()
