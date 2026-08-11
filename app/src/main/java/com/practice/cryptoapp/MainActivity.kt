@@ -1,6 +1,7 @@
 package com.practice.cryptoapp
 
 import android.os.Bundle
+import com.practice.cryptoapp.TradeViewModel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
