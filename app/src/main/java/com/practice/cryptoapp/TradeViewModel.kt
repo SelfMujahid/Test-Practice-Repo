@@ -266,7 +266,9 @@ class TradeViewModel : ViewModel() {
         val request = Request.Builder().url(url).build()
 
         depthSocket = depthClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) { /* connected */ }
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                // connected
+            }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 parseDepthMessage(text)
