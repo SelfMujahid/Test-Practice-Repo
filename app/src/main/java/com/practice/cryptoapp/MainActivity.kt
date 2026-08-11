@@ -1234,7 +1234,7 @@ fun CryptoExchangeApp(
         )
 
     "Trade" -> {
-        val tradeVm: com.practice.cryptoapp.ui.TradeViewModel = viewModel()
+        val tradeVm: com.practice.cryptoapp.TradeViewModel = viewModel()
         TradeScreen(vm = tradeVm)
     }
 
