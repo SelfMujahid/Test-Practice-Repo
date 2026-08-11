@@ -1284,12 +1284,8 @@ fun HomeScreen(
     vm: CryptoViewModel
 ) {
 
-    var balance by
-        rememberSaveable {
-            mutableDoubleStateOf(
-                10000.0
-            )
-        }
+    val balance by
+    DemoAccountStore.balance.collectAsState()
 
     val initialBalance =
         10000.0
@@ -1462,8 +1458,7 @@ fun HomeScreen(
                         it
                 },
                 onReset = {
-                    balance =
-                        initialBalance
+                    DemoAccountStore.reset()
                 }
             )
 
