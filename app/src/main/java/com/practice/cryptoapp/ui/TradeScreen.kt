@@ -61,7 +61,6 @@ fun TradeScreen(
     }
 
     val selectedCoin = remember(coins, allStaticCoins, symbol) {
-        // First try to find in live coins
         coins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
             ?: allStaticCoins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
             ?: CryptoCoin(symbol = symbol.removeSuffix("USDT"), name = symbol, logo = "", price = 0.0, change24h = 0.0, volume24h = 0.0, marketCap = 0.0, rank = Int.MAX_VALUE)
@@ -94,9 +93,9 @@ fun TradeScreen(
     // Prepare default list: live coins (full) + rest symbols (compact)
     val defaultList = remember(coins, allStaticCoins) {
         val liveSymbols = coins.map { it.symbol }.toSet()
-        val livePart = coins.sortedWith(compareBy { it.rank }.thenBy { it.symbol })
+        val livePart = coins.sortedWith(compareBy(CryptoCoin::rank).thenBy(CryptoCoin::symbol))
         val restPart = allStaticCoins.filter { it.symbol !in liveSymbols }
-            .map { it.copy(price = 0.0, change24h = 0.0, logo = "", marketCap = 0.0, rank = Int.MAX_VALUE) } // compact
+            .map { it.copy(price = 0.0, change24h = 0.0, logo = "", marketCap = 0.0, rank = Int.MAX_VALUE) }
         livePart + restPart
     }
 
@@ -178,14 +177,12 @@ fun TradeScreen(
 
         val displayCoins = remember(defaultList, allStaticCoins, pairSearch, isSearchActive) {
             if (isSearchActive) {
-                // Search: filter static list with full details
                 allStaticCoins.filter {
                     it.symbol.contains(pairSearch, true) ||
                     it.name.contains(pairSearch, true) ||
                     (it.symbol + "USDT").contains(pairSearch, true)
                 }
             } else {
-                // Default: live coins full details + rest compact
                 defaultList
             }
         }
@@ -207,7 +204,7 @@ fun TradeScreen(
 
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(displayCoins, key = { it.symbol }) { coin ->
-                            val isLive = coins.any { it.symbol == coin.symbol }  // to show full if live
+                            val isLive = coins.any { it.symbol == coin.symbol }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -219,7 +216,6 @@ fun TradeScreen(
                                     .padding(vertical = 8.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Logo
                                 if (coin.logo.isNotBlank() && (isLive || isSearchActive)) {
                                     AsyncImage(
                                         model = coin.logo,
@@ -238,7 +234,6 @@ fun TradeScreen(
 
                                 Spacer(Modifier.width(8.dp))
 
-                                // Name + Symbol
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = coin.name.ifBlank { coin.symbol },
@@ -256,7 +251,6 @@ fun TradeScreen(
                                     }
                                 }
 
-                                // Price + Change (show if live or search active)
                                 if (isLive || isSearchActive) {
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text(
@@ -373,7 +367,6 @@ private fun MarketHeader(
             modifier = Modifier.fillMaxWidth().padding(9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Logo
             if (logo.isNotBlank()) {
                 AsyncImage(
                     model = logo,
@@ -389,7 +382,6 @@ private fun MarketHeader(
 
             Spacer(Modifier.width(8.dp))
 
-            // Symbol + name
             Column(modifier = Modifier.weight(1f)) {
                 TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -400,7 +392,6 @@ private fun MarketHeader(
                 Text(name, fontSize = 9.sp, color = Color.Gray)
             }
 
-            // Price + 24h change
             Column(horizontalAlignment = Alignment.End) {
                 Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(formatPct(change24h), fontSize = 12.sp, fontWeight = FontWeight.Bold,
@@ -412,7 +403,7 @@ private fun MarketHeader(
 }
 
 // ============================================================
-// ORDER PANEL (unchanged from previous complete version)
+// ORDER PANEL (unchanged)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -442,7 +433,6 @@ private fun OrderPanel(
             Text("Place Order", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
 
-            // LONG/SHORT
             Row(modifier = Modifier.fillMaxWidth()) {
                 SideButton("Long", side == PositionSide.LONG, Green) { onSideChange(PositionSide.LONG) }
                 Spacer(Modifier.width(5.dp))
@@ -451,7 +441,6 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(7.dp))
 
-            // MARKET/LIMIT
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 SmallOrderType("Market", orderType == TradeOrderType.MARKET) { onOrderTypeChange(TradeOrderType.MARKET) }
                 SmallOrderType("Limit", orderType == TradeOrderType.LIMIT) { onOrderTypeChange(TradeOrderType.LIMIT) }
@@ -459,19 +448,16 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(7.dp))
 
-            // Leverage
             OutlinedButton(onClick = onLeverageClick, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 6.dp)) {
                 Text("${leverage}x", fontSize = 10.sp)
             }
 
             Spacer(Modifier.height(7.dp))
 
-            // Available
             SmallStat("Available", "%,.2f".format(balance) + " USDT")
 
             Spacer(Modifier.height(6.dp))
 
-            // Limit price input (if limit)
             if (orderType == TradeOrderType.LIMIT) {
                 OutlinedTextField(
                     value = limitPrice,
@@ -484,7 +470,6 @@ private fun OrderPanel(
                 Spacer(Modifier.height(6.dp))
             }
 
-            // Amount
             var amountText by rememberSaveable { mutableStateOf(quantity.toString()) }
             LaunchedEffect(quantity) {
                 val current = amountText.toDoubleOrNull()
@@ -507,7 +492,6 @@ private fun OrderPanel(
             )
             Spacer(Modifier.height(5.dp))
 
-            // Percentages
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(25, 50, 75, 100).forEach { p ->
                     TextButton(onClick = { onPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
