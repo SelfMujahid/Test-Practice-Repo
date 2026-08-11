@@ -4,11 +4,195 @@ import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.abs
 import kotlin.math.max
+
+// ============================================================
+// MODELS
+// ============================================================
+
+data class DemoPosition(
+    val symbol: String,
+    val side: PositionSide,
+    val entryPrice: Double,
+    val quantity: Double,
+    val leverage: Int
+)
+
+data class PendingOrder(
+    val id: Long,
+    val symbol: String,
+    val side: PositionSide,
+    val price: Double,
+    val quantity: Double,
+    val leverage: Int
+)
+
+data class TradeHistory(
+    val id: Long,
+    val symbol: String,
+    val side: PositionSide,
+    val entryPrice: Double,
+    val exitPrice: Double,
+    val quantity: Double,
+    val pnl: Double
+)
+
+data class OrderBookLevel(
+    val price: Double,
+    val quantity: Double
+)
+
+enum class PositionSide {
+    LONG,
+    SHORT
+}
+
+enum class TradeOrderType {
+    MARKET,
+    LIMIT
+}
+
+enum class TradeMode {
+    SPOT,
+    FUTURES,
+    BOT
+}
+
+// ============================================================
+// DEMO ACCOUNT STORE
+// ============================================================
+
+object DemoAccountStore {
+
+    private val _balance = MutableStateFlow(10_000.0)
+    val balance: StateFlow<Double> = _balance.asStateFlow()
+
+    private val _usedMargin = MutableStateFlow(0.0)
+    val usedMargin: StateFlow<Double> = _usedMargin.asStateFlow()
+
+    private val _position = MutableStateFlow<DemoPosition?>(null)
+    val position: StateFlow<DemoPosition?> = _position.asStateFlow()
+
+    private val _pendingOrders = MutableStateFlow<List<PendingOrder>>(emptyList())
+    val pendingOrders: StateFlow<List<PendingOrder>> = _pendingOrders.asStateFlow()
+
+    private val _history = MutableStateFlow<List<TradeHistory>>(emptyList())
+    val history: StateFlow<List<TradeHistory>> = _history.asStateFlow()
+
+    fun reset() {
+        _balance.value = 10_000.0
+        _usedMargin.value = 0.0
+        _position.value = null
+        _pendingOrders.value = emptyList()
+        _history.value = emptyList()
+    }
+
+    fun openMarketPosition(
+        symbol: String,
+        side: PositionSide,
+        entryPrice: Double,
+        quantity: Double,
+        leverage: Int
+    ): Boolean {
+        if (entryPrice <= 0.0 || quantity <= 0.0) return false
+        if (_position.value != null) return false
+
+        val actualLeverage = leverage.coerceIn(1, 125)
+        val notional = entryPrice * quantity
+        val margin = notional / actualLeverage
+
+        if (margin > _balance.value) return false
+
+        _balance.value -= margin
+        _usedMargin.value = margin
+        _position.value = DemoPosition(
+            symbol = symbol,
+            side = side,
+            entryPrice = entryPrice,
+            quantity = quantity,
+            leverage = actualLeverage
+        )
+        return true
+    }
+
+    fun addPendingOrder(
+        symbol: String,
+        side: PositionSide,
+        price: Double,
+        quantity: Double,
+        leverage: Int
+    ): Boolean {
+        if (price <= 0.0 || quantity <= 0.0) return false
+
+        val actualLeverage = leverage.coerceIn(1, 125)
+        val margin = (price * quantity) / actualLeverage
+
+        if (margin > _balance.value) return false
+
+        val order = PendingOrder(
+            id = System.currentTimeMillis(),
+            symbol = symbol,
+            side = side,
+            price = price,
+            quantity = quantity,
+            leverage = actualLeverage
+        )
+        _pendingOrders.value = _pendingOrders.value + order
+        return true
+    }
+
+    fun cancelPendingOrder(id: Long) {
+        _pendingOrders.value = _pendingOrders.value.filterNot { it.id == id }
+    }
+
+    fun closePosition(currentPrice: Double): Double {
+        val currentPosition = _position.value ?: return 0.0
+        val pnl = calculatePnl(currentPosition, currentPrice)
+
+        _balance.value += _usedMargin.value + pnl
+        _history.value = listOf(
+            TradeHistory(
+                id = System.currentTimeMillis(),
+                symbol = currentPosition.symbol,
+                side = currentPosition.side,
+                entryPrice = currentPosition.entryPrice,
+                exitPrice = currentPrice,
+                quantity = currentPosition.quantity,
+                pnl = pnl
+            )
+        ) + _history.value
+
+        _usedMargin.value = 0.0
+        _position.value = null
+        return pnl
+    }
+
+    fun calculatePnl(currentPrice: Double): Double {
+        val currentPosition = _position.value ?: return 0.0
+        return calculatePnl(currentPosition, currentPrice)
+    }
+
+    private fun calculatePnl(position: DemoPosition, currentPrice: Double): Double {
+        return if (position.side == PositionSide.LONG) {
+            (currentPrice - position.entryPrice) * position.quantity
+        } else {
+            (position.entryPrice - currentPrice) * position.quantity
+        }
+    }
+}
+
+// ============================================================
+// TRADE VIEW MODEL
+// ============================================================
 
 class TradeViewModel : ViewModel() {
 
-    // --- Order form state ---
+    // --- Mode ---
+    private val _mode = MutableStateFlow(TradeMode.FUTURES)
+    val mode: StateFlow<TradeMode> = _mode.asStateFlow()
+
+    // --- Order form ---
     private val _symbol = MutableStateFlow("BTCUSDT")
     val symbol: StateFlow<String> = _symbol.asStateFlow()
 
@@ -30,13 +214,22 @@ class TradeViewModel : ViewModel() {
     private val _message = MutableStateFlow("")
     val message: StateFlow<String> = _message.asStateFlow()
 
-    // --- Shared demo data (from DemoAccountStore) ---
+    // --- Shared demo data ---
     val balance: StateFlow<Double> = DemoAccountStore.balance
     val position: StateFlow<DemoPosition?> = DemoAccountStore.position
     val pendingOrders: StateFlow<List<PendingOrder>> = DemoAccountStore.pendingOrders
     val history: StateFlow<List<TradeHistory>> = DemoAccountStore.history
 
     // --- Actions ---
+    fun setMode(mode: TradeMode) {
+        _mode.value = mode
+        _message.value = when (mode) {
+            TradeMode.FUTURES -> ""
+            TradeMode.SPOT -> "Spot mode is UI-only for now"
+            TradeMode.BOT -> "Bot mode is UI-only for now"
+        }
+    }
+
     fun setSymbol(sym: String) {
         _symbol.value = sym.trim().uppercase()
     }
@@ -76,6 +269,10 @@ class TradeViewModel : ViewModel() {
     }
 
     fun openOrder(executionPrice: Double) {
+        if (_mode.value != TradeMode.FUTURES) {
+            _message.value = "Select Futures first"
+            return
+        }
         if (_quantity.value <= 0.0) {
             _message.value = "Enter quantity"
             return
@@ -83,7 +280,7 @@ class TradeViewModel : ViewModel() {
         when (_orderType.value) {
             TradeOrderType.MARKET -> {
                 if (executionPrice <= 0.0) {
-                    _message.value = "Waiting for price"
+                    _message.value = "Waiting for live price"
                     return
                 }
                 val success = DemoAccountStore.openMarketPosition(
@@ -131,9 +328,7 @@ class TradeViewModel : ViewModel() {
     companion object {
         fun formatMoney(value: Double): String {
             val sign = if (value >= 0.0) "+" else "-"
-            val absVal = kotlin.math.abs(value)
-            val formatted = "%,.2f".format(absVal)
-            return "$sign$formatted"
+            return "$sign${"%,.2f".format(abs(value))}"
         }
     }
 }
