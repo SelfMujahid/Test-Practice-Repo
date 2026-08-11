@@ -610,52 +610,51 @@ class TradeViewModel : ViewModel() {
                 .build()
 
         socket =
-            client.newWebSocket(
-                request,
-                object :
-                    WebSocketListener() {
+    client.newWebSocket(
+        request,
+        object :
+            WebSocketListener() {
 
-                    override fun onOpen(
-                        webSocket: WebSocket,
-                        response: Response
-                    ) {
-
-                        _message.value =
-                            ""
-                    }
-
-                    override fun onMessage(
-                        webSocket: WebSocket,
-                        text: String
-                    ) {
-
-                        parseMessage(
-                            text
-                        )
-                    }
-
-                    override fun onFailure(
-                        webSocket: WebSocket,
-                        t: Throwable,
-                        response: Response?
-                    ) {
-
-                        _message.value =
-                            "Reconnecting..."
-
-                        scheduleReconnect()
-                    }
-
-                    override fun onClosed(
-                        webSocket: WebSocket,
-                        code: Int,
-                        reason: String
-                    ) {
-
-                        scheduleReconnect()
-                    }
+            override fun onOpen(
+                webSocket: WebSocket,
+                response: Response
+            ) {
+                viewModelScope.launch {
+                    _message.value = ""
                 }
-            )
+            }
+
+            override fun onMessage(
+                webSocket: WebSocket,
+                text: String
+            ) {
+                viewModelScope.launch {
+                    parseMessage(text)
+                }
+            }
+
+            override fun onFailure(
+                webSocket: WebSocket,
+                t: Throwable,
+                response: Response?
+            ) {
+                viewModelScope.launch {
+                    _message.value = "Reconnecting..."
+                    scheduleReconnect()
+                }
+            }
+
+            override fun onClosed(
+                webSocket: WebSocket,
+                code: Int,
+                reason: String
+            ) {
+                viewModelScope.launch {
+                    scheduleReconnect()
+                }
+            }
+        }
+    )
 
         startFundingCountdown()
     }
