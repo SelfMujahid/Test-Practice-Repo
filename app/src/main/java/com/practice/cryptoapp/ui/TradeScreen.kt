@@ -169,6 +169,7 @@ fun TradeScreen(
                     onValueChange = { pairSearch = it.uppercase(Locale.US) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    shape = RoundedCornerShape(50),
                     placeholder = { Text("Search...") }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
