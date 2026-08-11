@@ -295,8 +295,8 @@ class TradeViewModel : ViewModel() {
     private fun parseDepthMessage(text: String) {
         try {
             val json = JSONObject(text)
-            val bidsArr = json.optJSONArray("b")
-            val asksArr = json.optJSONArray("a")
+            val bidsArr = json.optJSONArray("bids")
+            val asksArr = json.optJSONArray("ask")
             val bidList = mutableListOf<OrderBookLevel>()
             val askList = mutableListOf<OrderBookLevel>()
             for (i in 0 until (bidsArr?.length() ?: 0)) {
