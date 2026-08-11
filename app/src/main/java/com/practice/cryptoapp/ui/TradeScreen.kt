@@ -623,7 +623,7 @@ private fun ModeBar(
 }
 
 @Composable
-private fun ModeButton(
+private fun RowScope.ModeButton(
     title: String,
     selected: Boolean,
     onClick: () -> Unit
@@ -1899,7 +1899,7 @@ private fun BottomTradeTabs(
 }
 
 @Composable
-private fun BottomTabButton(
+private fun RowScope.BottomTabButton(
     title: String,
     selected: Boolean,
     onClick: () -> Unit
@@ -2474,7 +2474,7 @@ private fun HistoryRow(
 // ============================================================
 
 @Composable
-private fun SideButton(
+private fun RowScope.SideButton(
     text: String,
     selected: Boolean,
     color: Color,
