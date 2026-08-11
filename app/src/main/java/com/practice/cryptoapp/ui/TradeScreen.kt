@@ -66,10 +66,11 @@ fun TradeScreen(
     val quantity by vm.quantity.collectAsState()
     val limitPrice by vm.limitPrice.collectAsState()
 
-    val balance by DemoAccountStore.balance.collectAsState()
-    val position by DemoAccountStore.position.collectAsState()
-    val pendingOrders by DemoAccountStore.pendingOrders.collectAsState()
-    val history by DemoAccountStore.history.collectAsState()
+    // FIXED: Collect position/order states from the ViewModel (which internally delegates to DemoAccountStore)
+    val balance by vm.balance.collectAsState()
+    val position by vm.position.collectAsState()
+    val pendingOrders by vm.pendingOrders.collectAsState()
+    val history by vm.history.collectAsState()
 
     val message by vm.message.collectAsState()
 
