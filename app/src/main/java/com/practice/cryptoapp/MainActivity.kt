@@ -1355,7 +1355,7 @@ fun HomeScreen(
 
                 launch {
 
-                    delay(600)
+                    delay(200)
 
                     if (
                         flashMap[
