@@ -736,3 +736,86 @@ private fun formatPrice(value: Double): String {
     return if (value >= 1.0) "%,.2f".format(value) else "%.8f".format(value).trimEnd('0').trimEnd('.')
 }
 private fun formatPct(value: Double): String = "%+.2f%%".format(value)
+
+@Composable
+private fun OrderBookPanel(
+    modifier: Modifier,
+    symbol: String,
+    currentPrice: Double,
+    bids: List<OrderBookLevel>,
+    asks: List<OrderBookLevel>
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Order Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(symbol, fontSize = 9.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(5.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text("USDT", modifier = Modifier.weight(1f), fontSize = 8.sp, color = Color.Gray)
+                Text("Price", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontSize = 8.sp, color = Color.Gray)
+                Text("Amount", modifier = Modifier.weight(1f), textAlign = TextAlign.End, fontSize = 8.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(3.dp))
+
+            asks.take(6).asReversed().forEach { level ->
+                OrderBookLine(level = level, color = Red)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF3EDF7), RoundedCornerShape(5.dp))
+                    .padding(vertical = 5.dp)
+            ) {
+                Text(
+                    text = if (currentPrice > 0) formatPrice(currentPrice) else "—",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PurpleMimosa
+                )
+            }
+
+            Spacer(Modifier.height(3.dp))
+
+            bids.take(6).forEach { level ->
+                OrderBookLine(level = level, color = Green)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderBookLine(level: OrderBookLevel, color: Color) {
+    val usdtValue = level.price * level.quantity
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(
+            text = String.format(Locale.US, "%.2f", usdtValue),
+            modifier = Modifier.weight(1f),
+            fontSize = 8.sp,
+            color = Color.Gray
+        )
+        Text(
+            text = formatPrice(level.price),
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+            fontSize = 8.sp,
+            color = color
+        )
+        Text(
+            text = String.format(Locale.US, "%.4f", level.quantity),
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+            fontSize = 8.sp,
+            color = Color.Gray
+        )
+    }
+}
