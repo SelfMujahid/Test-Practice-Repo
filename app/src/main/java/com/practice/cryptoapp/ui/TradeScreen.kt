@@ -310,7 +310,7 @@ fun TradeScreen(
         )
     }
 
-    // --- Leverage dialog (same as before) ---
+    // --- Leverage dialog ---
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
@@ -343,9 +343,97 @@ fun TradeScreen(
 }
 
 // ============================================================
-// ORDER PANEL (unchanged)
+// MODE BAR
 // ============================================================
+@Composable
+private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ModeButton("Spot", mode == TradeMode.SPOT) { onSelect(TradeMode.SPOT) }
+        ModeButton("Future", mode == TradeMode.FUTURES) { onSelect(TradeMode.FUTURES) }
+        ModeButton("Bot", mode == TradeMode.BOT) { onSelect(TradeMode.BOT) }
+    }
+}
 
+@Composable
+private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        shape = RoundedCornerShape(7.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
+            contentColor = if (selected) Color.White else Color.DarkGray
+        )
+    ) {
+        Text(text = title, fontSize = 11.sp)
+    }
+}
+
+// ============================================================
+// MARKET HEADER (simplified)
+// ============================================================
+@Composable
+private fun MarketHeader(
+    symbol: String,
+    name: String,
+    logo: String,
+    price: Double,
+    change24h: Double,
+    onPairClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Logo
+            if (logo.isNotBlank()) {
+                AsyncImage(
+                    model = logo,
+                    contentDescription = name,
+                    modifier = Modifier.size(28.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(Modifier.size(28.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+                    Text(symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // Symbol + name
+            Column(modifier = Modifier.weight(1f)) {
+                TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(symbol, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Text(name, fontSize = 9.sp, color = Color.Gray)
+            }
+
+            // Price + 24h change
+            Column(horizontalAlignment = Alignment.End) {
+                Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(formatPct(change24h), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    color = if (change24h >= 0) Green else Red
+                )
+            }
+        }
+    }
+}
+
+// ============================================================
+// ORDER PANEL (unchanged from previous complete version)
+// ============================================================
 @Composable
 private fun OrderPanel(
     modifier: Modifier,
