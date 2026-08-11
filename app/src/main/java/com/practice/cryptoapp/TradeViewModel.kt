@@ -21,7 +21,6 @@ import kotlin.math.max
 
 // ============================================================
 // DEMO ACCOUNT
-// Shared trading balance for the Trade screen.
 // ============================================================
 
 object DemoAccountStore {
@@ -45,21 +44,15 @@ object DemoAccountStore {
         _position.asStateFlow()
 
     private val _pendingOrders =
-        MutableStateFlow<List<PendingOrder>>(
-            emptyList()
-        )
+        MutableStateFlow<List<PendingOrder>>(emptyList())
 
-    val pendingOrders:
-        StateFlow<List<PendingOrder>> =
+    val pendingOrders: StateFlow<List<PendingOrder>> =
         _pendingOrders.asStateFlow()
 
     private val _history =
-        MutableStateFlow<List<TradeHistory>>(
-            emptyList()
-        )
+        MutableStateFlow<List<TradeHistory>>(emptyList())
 
-    val history:
-        StateFlow<List<TradeHistory>> =
+    val history: StateFlow<List<TradeHistory>> =
         _history.asStateFlow()
 
     fun reset() {
@@ -78,10 +71,7 @@ object DemoAccountStore {
         leverage: Int
     ): Boolean {
 
-        if (
-            entryPrice <= 0.0 ||
-            quantity <= 0.0
-        ) {
+        if (entryPrice <= 0.0 || quantity <= 0.0) {
             return false
         }
 
@@ -89,14 +79,9 @@ object DemoAccountStore {
             return false
         }
 
-        val actualLeverage =
-            leverage.coerceIn(1, 125)
-
-        val notional =
-            entryPrice * quantity
-
-        val margin =
-            notional / actualLeverage
+        val actualLeverage = leverage.coerceIn(1, 125)
+        val notional = entryPrice * quantity
+        val margin = notional / actualLeverage
 
         if (margin > _balance.value) {
             return false
@@ -105,14 +90,13 @@ object DemoAccountStore {
         _balance.value -= margin
         _usedMargin.value = margin
 
-        _position.value =
-            DemoPosition(
-                symbol = symbol,
-                side = side,
-                entryPrice = entryPrice,
-                quantity = quantity,
-                leverage = actualLeverage
-            )
+        _position.value = DemoPosition(
+            symbol = symbol,
+            side = side,
+            entryPrice = entryPrice,
+            quantity = quantity,
+            leverage = actualLeverage
+        )
 
         return true
     }
@@ -125,84 +109,58 @@ object DemoAccountStore {
         leverage: Int
     ): Boolean {
 
-        if (
-            price <= 0.0 ||
-            quantity <= 0.0
-        ) {
+        if (price <= 0.0 || quantity <= 0.0) {
             return false
         }
 
-        val actualLeverage =
-            leverage.coerceIn(1, 125)
-
-        val margin =
-            (price * quantity) /
-                actualLeverage
+        val actualLeverage = leverage.coerceIn(1, 125)
+        val margin = (price * quantity) / actualLeverage
 
         if (margin > _balance.value) {
             return false
         }
 
-        val order =
-            PendingOrder(
-                id = System.currentTimeMillis(),
-                symbol = symbol,
-                side = side,
-                price = price,
-                quantity = quantity,
-                leverage = actualLeverage
-            )
+        val order = PendingOrder(
+            id = System.currentTimeMillis(),
+            symbol = symbol,
+            side = side,
+            price = price,
+            quantity = quantity,
+            leverage = actualLeverage
+        )
 
-        _pendingOrders.value =
-            _pendingOrders.value + order
-
+        _pendingOrders.value = _pendingOrders.value + order
         return true
     }
 
-    fun cancelPendingOrder(
-        id: Long
-    ) {
-
+    fun cancelPendingOrder(id: Long) {
         _pendingOrders.value =
-            _pendingOrders.value.filterNot {
-                it.id == id
-            }
+            _pendingOrders.value.filterNot { it.id == id }
     }
 
-    fun closePosition(
-        currentPrice: Double
-    ): Double {
+    fun closePosition(currentPrice: Double): Double {
 
-        val position =
-            _position.value
-                ?: return 0.0
+        val currentPosition =
+            _position.value ?: return 0.0
 
         val pnl =
             calculatePnl(
-                position,
+                currentPosition,
                 currentPrice
             )
 
-        _balance.value +=
-            _usedMargin.value + pnl
+        _balance.value += _usedMargin.value + pnl
 
         _history.value =
             listOf(
                 TradeHistory(
-                    id =
-                        System.currentTimeMillis(),
-                    symbol =
-                        position.symbol,
-                    side =
-                        position.side,
-                    entryPrice =
-                        position.entryPrice,
-                    exitPrice =
-                        currentPrice,
-                    quantity =
-                        position.quantity,
-                    pnl =
-                        pnl
+                    id = System.currentTimeMillis(),
+                    symbol = currentPosition.symbol,
+                    side = currentPosition.side,
+                    entryPrice = currentPosition.entryPrice,
+                    exitPrice = currentPrice,
+                    quantity = currentPosition.quantity,
+                    pnl = pnl
                 )
             ) + _history.value
 
@@ -212,16 +170,13 @@ object DemoAccountStore {
         return pnl
     }
 
-    fun calculatePnl(
-        currentPrice: Double
-    ): Double {
+    fun calculatePnl(currentPrice: Double): Double {
 
-        val position =
-            _position.value
-                ?: return 0.0
+        val currentPosition =
+            _position.value ?: return 0.0
 
         return calculatePnl(
-            position,
+            currentPosition,
             currentPrice
         )
     }
@@ -231,22 +186,12 @@ object DemoAccountStore {
         currentPrice: Double
     ): Double {
 
-        return if (
-            position.side ==
-            PositionSide.LONG
-        ) {
-
-            (
-                currentPrice -
-                    position.entryPrice
-            ) * position.quantity
-
+        return if (position.side == PositionSide.LONG) {
+            (currentPrice - position.entryPrice) *
+                position.quantity
         } else {
-
-            (
-                position.entryPrice -
-                    currentPrice
-            ) * position.quantity
+            (position.entryPrice - currentPrice) *
+                position.quantity
         }
     }
 }
@@ -311,229 +256,174 @@ class TradeViewModel : ViewModel() {
 
     private val client =
         OkHttpClient.Builder()
-            .readTimeout(
-                0,
-                TimeUnit.MILLISECONDS
-            )
-            .pingInterval(
-                20,
-                TimeUnit.SECONDS
-            )
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
 
-    private var socket:
-        WebSocket? = null
+    private var socket: WebSocket? = null
+    private var reconnectJob: Job? = null
+    private var fundingJob: Job? = null
 
-    private var reconnectJob:
-        Job? = null
-
-    private var fundingJob:
-        Job? = null
-
-    // --------------------------------------------------------
+    // ========================================================
     // MODE
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _mode =
-        MutableStateFlow(
-            TradeMode.FUTURES
-        )
+        MutableStateFlow(TradeMode.FUTURES)
 
-    val mode:
-        StateFlow<TradeMode> =
+    val mode: StateFlow<TradeMode> =
         _mode.asStateFlow()
 
-    // --------------------------------------------------------
+    // ========================================================
     // SYMBOL
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _symbol =
-        MutableStateFlow(
-            "BTCUSDT"
-        )
+        MutableStateFlow("BTCUSDT")
 
-    val symbol:
-        StateFlow<String> =
+    val symbol: StateFlow<String> =
         _symbol.asStateFlow()
 
-    // --------------------------------------------------------
-    // LIVE PRICE
-    // --------------------------------------------------------
+    // ========================================================
+    // LIVE MARKET
+    // ========================================================
 
     private val _price =
-        MutableStateFlow(
-            0.0
-        )
+        MutableStateFlow(0.0)
 
-    val price:
-        StateFlow<Double> =
+    val price: StateFlow<Double> =
         _price.asStateFlow()
 
     private val _high24h =
-        MutableStateFlow(
-            0.0
-        )
+        MutableStateFlow(0.0)
 
-    val high24h:
-        StateFlow<Double> =
+    val high24h: StateFlow<Double> =
         _high24h.asStateFlow()
 
     private val _low24h =
-        MutableStateFlow(
-            0.0
-        )
+        MutableStateFlow(0.0)
 
-    val low24h:
-        StateFlow<Double> =
+    val low24h: StateFlow<Double> =
         _low24h.asStateFlow()
 
     private val _change24h =
-        MutableStateFlow(
-            0.0
-        )
+        MutableStateFlow(0.0)
 
-    val change24h:
-        StateFlow<Double> =
+    val change24h: StateFlow<Double> =
         _change24h.asStateFlow()
 
-    // --------------------------------------------------------
+    // ========================================================
     // FUNDING
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _fundingRate =
-        MutableStateFlow(
-            0.0
-        )
+        MutableStateFlow(0.0)
 
-    val fundingRate:
-        StateFlow<Double> =
+    val fundingRate: StateFlow<Double> =
         _fundingRate.asStateFlow()
 
     private val _fundingCountdown =
-        MutableStateFlow(
-            "--:--:--"
-        )
+        MutableStateFlow("--:--:--")
 
-    val fundingCountdown:
-        StateFlow<String> =
+    val fundingCountdown: StateFlow<String> =
         _fundingCountdown.asStateFlow()
 
-    // --------------------------------------------------------
+    private var nextFundingTime = 0L
+
+    // ========================================================
     // ORDER BOOK
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _bids =
-        MutableStateFlow<
-            List<OrderBookLevel>
-            >(emptyList())
+        MutableStateFlow<List<OrderBookLevel>>(emptyList())
 
-    val bids:
-        StateFlow<List<OrderBookLevel>> =
+    val bids: StateFlow<List<OrderBookLevel>> =
         _bids.asStateFlow()
 
     private val _asks =
-        MutableStateFlow<
-            List<OrderBookLevel>
-            >(emptyList())
+        MutableStateFlow<List<OrderBookLevel>>(emptyList())
 
-    val asks:
-        StateFlow<List<OrderBookLevel>> =
+    val asks: StateFlow<List<OrderBookLevel>> =
         _asks.asStateFlow()
 
-    // --------------------------------------------------------
-    // CHART DATA
-    // --------------------------------------------------------
+    // ========================================================
+    // CHART
+    // ========================================================
 
     private val _priceHistory =
-        MutableStateFlow<
-            List<Double>
-            >(emptyList())
+        MutableStateFlow<List<Double>>(emptyList())
 
-    val priceHistory:
-        StateFlow<List<Double>> =
+    val priceHistory: StateFlow<List<Double>> =
         _priceHistory.asStateFlow()
 
-    // --------------------------------------------------------
+    // ========================================================
     // ORDER FORM
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _orderType =
-        MutableStateFlow(
-            TradeOrderType.MARKET
-        )
+        MutableStateFlow(TradeOrderType.MARKET)
 
-    val orderType:
-        StateFlow<TradeOrderType> =
+    val orderType: StateFlow<TradeOrderType> =
         _orderType.asStateFlow()
 
     private val _side =
-        MutableStateFlow(
-            PositionSide.LONG
-        )
+        MutableStateFlow(PositionSide.LONG)
 
-    val side:
-        StateFlow<PositionSide> =
+    val side: StateFlow<PositionSide> =
         _side.asStateFlow()
 
     private val _leverage =
-        MutableStateFlow(
-            10
-        )
+        MutableStateFlow(10)
 
-    val leverage:
-        StateFlow<Int> =
+    val leverage: StateFlow<Int> =
         _leverage.asStateFlow()
 
     private val _quantity =
-        MutableStateFlow(
-            0.001
-        )
+        MutableStateFlow(0.001)
 
-    val quantity:
-        StateFlow<Double> =
+    val quantity: StateFlow<Double> =
         _quantity.asStateFlow()
 
     private val _limitPrice =
-        MutableStateFlow(
-            ""
-        )
+        MutableStateFlow("")
 
-    val limitPrice:
-        StateFlow<String> =
+    val limitPrice: StateFlow<String> =
         _limitPrice.asStateFlow()
 
-    // --------------------------------------------------------
+    // ========================================================
     // MESSAGE
-    // --------------------------------------------------------
+    // ========================================================
 
     private val _message =
-        MutableStateFlow(
-            ""
-        )
+        MutableStateFlow("")
 
-    val message:
-        StateFlow<String> =
+    val message: StateFlow<String> =
         _message.asStateFlow()
 
-    // --------------------------------------------------------
+    // ========================================================
     // SHARED DEMO DATA
-    // --------------------------------------------------------
+    // THESE ARE REQUIRED BY TradeScreen.kt
+    // ========================================================
 
-    val demoBalance =
+    val demoBalance: StateFlow<Double> =
         DemoAccountStore.balance
 
-    val usedMargin =
+    val usedMargin: StateFlow<Double> =
         DemoAccountStore.usedMargin
 
-    val position =
+    val position: StateFlow<DemoPosition?> =
         DemoAccountStore.position
 
-    val pendingOrders =
+    val pendingOrders: StateFlow<List<PendingOrder>> =
         DemoAccountStore.pendingOrders
 
-    val history =
+    val history: StateFlow<List<TradeHistory>> =
         DemoAccountStore.history
+
+    // ========================================================
+    // INIT
+    // ========================================================
 
     init {
         connect()
@@ -543,33 +433,22 @@ class TradeViewModel : ViewModel() {
     // MODE
     // ========================================================
 
-    fun setMode(
-        newMode: TradeMode
-    ) {
+    fun setMode(newMode: TradeMode) {
 
-        _mode.value =
-            newMode
+        _mode.value = newMode
 
-        if (
-            newMode ==
-            TradeMode.FUTURES
-        ) {
-            _message.value = ""
-        } else {
-            _message.value =
-                when (newMode) {
-                    TradeMode.SPOT ->
-                        "Spot mode is UI-only for now"
-                    TradeMode.BOT ->
-                        "Bot mode is UI-only for now"
-                    TradeMode.FUTURES ->
-                        ""
-                }
-        }
+        _message.value =
+            when (newMode) {
+                TradeMode.FUTURES -> ""
+                TradeMode.SPOT ->
+                    "Spot mode is UI-only for now"
+                TradeMode.BOT ->
+                    "Bot mode is UI-only for now"
+            }
     }
 
     // ========================================================
-    // WSS CONNECTION
+    // CONNECT BINANCE FUTURES
     // ========================================================
 
     fun connect() {
@@ -585,19 +464,17 @@ class TradeViewModel : ViewModel() {
             _symbol.value.lowercase()
 
         /*
-         * Binance USDⓈ-M Futures WebSocket.
-         *
-         * aggTrade:
-         * live trade price
+         * ticker:
+         * current price + 24h high/low/change
          *
          * depth10@100ms:
          * order book
          *
          * markPrice@1s:
-         * funding rate + next funding time
+         * funding rate + next funding timestamp
          */
         val streams =
-            "$lower@aggTrade/" +
+            "$lower@ticker/" +
                 "$lower@depth10@100ms/" +
                 "$lower@markPrice@1s"
 
@@ -610,69 +487,58 @@ class TradeViewModel : ViewModel() {
                 .build()
 
         socket =
-    client.newWebSocket(
-        request,
-        object :
-            WebSocketListener() {
+            client.newWebSocket(
+                request,
+                object : WebSocketListener() {
 
-            override fun onOpen(
-                webSocket: WebSocket,
-                response: Response
-            ) {
-                viewModelScope.launch {
-                    _message.value = ""
-                }
-            }
+                    override fun onOpen(
+                        webSocket: WebSocket,
+                        response: Response
+                    ) {
+                        _message.value = ""
+                    }
 
-            override fun onMessage(
-                webSocket: WebSocket,
-                text: String
-            ) {
-                viewModelScope.launch {
-                    parseMessage(text)
-                }
-            }
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        text: String
+                    ) {
+                        parseMessage(text)
+                    }
 
-            override fun onFailure(
-                webSocket: WebSocket,
-                t: Throwable,
-                response: Response?
-            ) {
-                viewModelScope.launch {
-                    _message.value = "Reconnecting..."
-                    scheduleReconnect()
-                }
-            }
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        t: Throwable,
+                        response: Response?
+                    ) {
+                        _message.value =
+                            "Reconnecting..."
 
-            override fun onClosed(
-                webSocket: WebSocket,
-                code: Int,
-                reason: String
-            ) {
-                viewModelScope.launch {
-                    scheduleReconnect()
+                        scheduleReconnect()
+                    }
+
+                    override fun onClosed(
+                        webSocket: WebSocket,
+                        code: Int,
+                        reason: String
+                    ) {
+                        scheduleReconnect()
+                    }
                 }
-            }
-        }
-    )
+            )
 
         startFundingCountdown()
     }
 
     private fun scheduleReconnect() {
 
-        if (
-            reconnectJob?.isActive == true
-        ) {
+        if (reconnectJob?.isActive == true) {
             return
         }
 
         reconnectJob =
             viewModelScope.launch {
 
-                delay(
-                    2500
-                )
+                delay(2500)
 
                 connect()
             }
@@ -691,20 +557,12 @@ class TradeViewModel : ViewModel() {
 
                 while (true) {
 
-                    delay(
-                        1000
-                    )
+                    delay(1000)
 
-                    /*
-                     * The countdown uses the timestamp received
-                     * from Binance.
-                     */
                     val target =
                         nextFundingTime
 
-                    if (
-                        target <= 0L
-                    ) {
+                    if (target <= 0L) {
                         _fundingCountdown.value =
                             "--:--:--"
                         continue
@@ -718,23 +576,16 @@ class TradeViewModel : ViewModel() {
                             .coerceAtLeast(0L)
 
                     val totalSeconds =
-                        remaining /
-                            1000L
+                        remaining / 1000L
 
                     val hours =
-                        totalSeconds /
-                            3600L
+                        totalSeconds / 3600L
 
                     val minutes =
-                        (
-                            totalSeconds %
-                                3600L
-                            ) /
-                            60L
+                        (totalSeconds % 3600L) / 60L
 
                     val seconds =
-                        totalSeconds %
-                            60L
+                        totalSeconds % 60L
 
                     _fundingCountdown.value =
                         String.format(
@@ -748,90 +599,87 @@ class TradeViewModel : ViewModel() {
             }
     }
 
-    private var nextFundingTime =
-        0L
-
     // ========================================================
     // PARSE WEBSOCKET
     // ========================================================
 
-    private fun parseMessage(
-        text: String
-    ) {
+    private fun parseMessage(text: String) {
 
         try {
 
             val root =
-                JSONObject(
-                    text
-                )
+                JSONObject(text)
 
             val stream =
-                root.optString(
-                    "stream"
-                )
+                root.optString("stream")
 
             val data =
-                root.optJSONObject(
-                    "data"
-                )
+                root.optJSONObject("data")
                     ?: return
 
             when {
 
-                stream.contains(
-                    "@aggTrade"
-                ) -> {
+                stream.contains("@ticker") -> {
 
-                    val tradePrice =
-                        data
-                            .optString(
-                                "p"
-                            )
+                    val currentPrice =
+                        data.optString("c")
                             .toDoubleOrNull()
-                            ?: return
 
-                    _price.value =
-                        tradePrice
+                    val high =
+                        data.optString("h")
+                            .toDoubleOrNull()
 
-                    _priceHistory.value =
-                        (
-                            _priceHistory.value +
-                                tradePrice
-                            )
-                            .takeLast(100)
+                    val low =
+                        data.optString("l")
+                            .toDoubleOrNull()
 
-                    /*
-                     * Check if a pending order can execute.
-                     */
-                    executeTriggeredPendingOrders(
-                        tradePrice
-                    )
+                    val change =
+                        data.optString("P")
+                            .toDoubleOrNull()
+
+                    if (currentPrice != null) {
+
+                        _price.value =
+                            currentPrice
+
+                        _priceHistory.value =
+                            (
+                                _priceHistory.value +
+                                    currentPrice
+                                ).takeLast(100)
+
+                        executeTriggeredPendingOrders(
+                            currentPrice
+                        )
+                    }
+
+                    if (high != null) {
+                        _high24h.value = high
+                    }
+
+                    if (low != null) {
+                        _low24h.value = low
+                    }
+
+                    if (change != null) {
+                        _change24h.value = change
+                    }
                 }
 
-                stream.contains(
-                    "@depth10"
-                ) -> {
+                stream.contains("@depth10") -> {
 
-                    parseDepth(
-                        data
-                    )
+                    parseDepth(data)
                 }
 
-                stream.contains(
-                    "@markPrice"
-                ) -> {
+                stream.contains("@markPrice") -> {
 
                     val rate =
-                        data
-                            .optString(
-                                "r"
-                            )
+                        data.optString("r")
                             .toDoubleOrNull()
-                            ?: 0.0
 
-                    _fundingRate.value =
-                        rate
+                    if (rate != null) {
+                        _fundingRate.value = rate
+                    }
 
                     nextFundingTime =
                         data.optLong(
@@ -849,110 +697,76 @@ class TradeViewModel : ViewModel() {
     // ORDER BOOK
     // ========================================================
 
-    private fun parseDepth(
-        data: JSONObject
-    ) {
+    private fun parseDepth(data: JSONObject) {
 
         val bidArray =
-            data.optJSONArray(
-                "b"
-            )
+            data.optJSONArray("b")
 
         val askArray =
-            data.optJSONArray(
-                "a"
-            )
+            data.optJSONArray("a")
 
-        if (
-            bidArray != null
-        ) {
+        if (bidArray != null) {
 
             val list =
-                mutableListOf<
-                    OrderBookLevel
-                    >()
+                mutableListOf<OrderBookLevel>()
 
-            for (
-                i in 0 until
-                    bidArray.length()
-            ) {
+            for (i in 0 until bidArray.length()) {
 
                 val row =
-                    bidArray.optJSONArray(
-                        i
-                    )
+                    bidArray.optJSONArray(i)
                         ?: continue
 
-                val p =
-                    row.optString(
-                        0
-                    )
+                val price =
+                    row.optString(0)
                         .toDoubleOrNull()
                         ?: continue
 
-                val q =
-                    row.optString(
-                        1
-                    )
+                val quantity =
+                    row.optString(1)
                         .toDoubleOrNull()
                         ?: continue
 
                 list.add(
                     OrderBookLevel(
-                        price = p,
-                        quantity = q
+                        price = price,
+                        quantity = quantity
                     )
                 )
             }
 
-            _bids.value =
-                list
+            _bids.value = list
         }
 
-        if (
-            askArray != null
-        ) {
+        if (askArray != null) {
 
             val list =
-                mutableListOf<
-                    OrderBookLevel
-                    >()
+                mutableListOf<OrderBookLevel>()
 
-            for (
-                i in 0 until
-                    askArray.length()
-            ) {
+            for (i in 0 until askArray.length()) {
 
                 val row =
-                    askArray.optJSONArray(
-                        i
-                    )
+                    askArray.optJSONArray(i)
                         ?: continue
 
-                val p =
-                    row.optString(
-                        0
-                    )
+                val price =
+                    row.optString(0)
                         .toDoubleOrNull()
                         ?: continue
 
-                val q =
-                    row.optString(
-                        1
-                    )
+                val quantity =
+                    row.optString(1)
                         .toDoubleOrNull()
                         ?: continue
 
                 list.add(
                     OrderBookLevel(
-                        price = p,
-                        quantity = q
+                        price = price,
+                        quantity = quantity
                     )
                 )
             }
 
-            _asks.value =
-                list
+            _asks.value = list
         }
     }
 
@@ -960,67 +774,39 @@ class TradeViewModel : ViewModel() {
     // SYMBOL
     // ========================================================
 
-    fun changeSymbol(
-        newSymbol: String
-    ) {
+    fun changeSymbol(newSymbol: String) {
 
         var clean =
             newSymbol
                 .trim()
                 .uppercase()
 
-        if (
-            clean.isBlank()
-        ) {
+        if (clean.isBlank()) {
             return
         }
 
-        if (
-            !clean.endsWith(
-                "USDT"
-            )
-        ) {
-
-            clean +=
-                "USDT"
+        if (!clean.endsWith("USDT")) {
+            clean += "USDT"
         }
 
-        if (
-            clean ==
-            _symbol.value
-        ) {
+        if (clean == _symbol.value) {
             return
         }
 
-        _symbol.value =
-            clean
+        _symbol.value = clean
 
-        _price.value =
-            0.0
+        _price.value = 0.0
+        _high24h.value = 0.0
+        _low24h.value = 0.0
+        _change24h.value = 0.0
+        _fundingRate.value = 0.0
+        _fundingCountdown.value = "--:--:--"
 
-        _high24h.value =
-            0.0
+        nextFundingTime = 0L
 
-        _low24h.value =
-            0.0
-
-        _change24h.value =
-            0.0
-
-        _fundingRate.value =
-            0.0
-
-        nextFundingTime =
-            0L
-
-        _bids.value =
-            emptyList()
-
-        _asks.value =
-            emptyList()
-
-        _priceHistory.value =
-            emptyList()
+        _bids.value = emptyList()
+        _asks.value = emptyList()
+        _priceHistory.value = emptyList()
 
         connect()
     }
@@ -1029,33 +815,20 @@ class TradeViewModel : ViewModel() {
     // ORDER CONTROLS
     // ========================================================
 
-    fun setOrderType(
-        type: TradeOrderType
-    ) {
-        _orderType.value =
-            type
+    fun setOrderType(type: TradeOrderType) {
+        _orderType.value = type
     }
 
-    fun setSide(
-        newSide: PositionSide
-    ) {
-        _side.value =
-            newSide
+    fun setSide(newSide: PositionSide) {
+        _side.value = newSide
     }
 
-    fun setLeverage(
-        value: Int
-    ) {
+    fun setLeverage(value: Int) {
         _leverage.value =
-            value.coerceIn(
-                1,
-                50
-            )
+            value.coerceIn(1, 50)
     }
 
-    fun setQuantity(
-        value: Double
-    ) {
+    fun setQuantity(value: Double) {
 
         _quantity.value =
             max(
@@ -1064,21 +837,15 @@ class TradeViewModel : ViewModel() {
             )
     }
 
-    fun setLimitPrice(
-        value: String
-    ) {
+    fun setLimitPrice(value: String) {
 
         if (
             value.isEmpty() ||
             value.matches(
-                Regex(
-                    "^\\d*(\\.\\d*)?$"
-                )
+                Regex("^\\d*(\\.\\d*)?$")
             )
         ) {
-
-            _limitPrice.value =
-                value
+            _limitPrice.value = value
         }
     }
 
@@ -1088,10 +855,7 @@ class TradeViewModel : ViewModel() {
 
     fun openOrder() {
 
-        if (
-            _mode.value !=
-            TradeMode.FUTURES
-        ) {
+        if (_mode.value != TradeMode.FUTURES) {
 
             _message.value =
                 "Select Futures first"
@@ -1099,10 +863,7 @@ class TradeViewModel : ViewModel() {
             return
         }
 
-        if (
-            _quantity.value <=
-            0.0
-        ) {
+        if (_quantity.value <= 0.0) {
 
             _message.value =
                 "Enter quantity"
@@ -1110,19 +871,14 @@ class TradeViewModel : ViewModel() {
             return
         }
 
-        when (
-            _orderType.value
-        ) {
+        when (_orderType.value) {
 
             TradeOrderType.MARKET -> {
 
                 val executionPrice =
                     _price.value
 
-                if (
-                    executionPrice <=
-                    0.0
-                ) {
+                if (executionPrice <= 0.0) {
 
                     _message.value =
                         "Waiting for live price"
@@ -1131,24 +887,13 @@ class TradeViewModel : ViewModel() {
                 }
 
                 val success =
-                    DemoAccountStore
-                        .openMarketPosition(
-
-                            symbol =
-                                _symbol.value,
-
-                            side =
-                                _side.value,
-
-                            entryPrice =
-                                executionPrice,
-
-                            quantity =
-                                _quantity.value,
-
-                            leverage =
-                                _leverage.value
-                        )
+                    DemoAccountStore.openMarketPosition(
+                        symbol = _symbol.value,
+                        side = _side.value,
+                        entryPrice = executionPrice,
+                        quantity = _quantity.value,
+                        leverage = _leverage.value
+                    )
 
                 _message.value =
                     if (success) {
@@ -1160,14 +905,12 @@ class TradeViewModel : ViewModel() {
 
             TradeOrderType.LIMIT -> {
 
-                val p =
+                val limit =
                     _limitPrice.value
                         .toDoubleOrNull()
                         ?: 0.0
 
-                if (
-                    p <= 0.0
-                ) {
+                if (limit <= 0.0) {
 
                     _message.value =
                         "Enter limit price"
@@ -1176,24 +919,13 @@ class TradeViewModel : ViewModel() {
                 }
 
                 val success =
-                    DemoAccountStore
-                        .addPendingOrder(
-
-                            symbol =
-                                _symbol.value,
-
-                            side =
-                                _side.value,
-
-                            price =
-                                p,
-
-                            quantity =
-                                _quantity.value,
-
-                            leverage =
-                                _leverage.value
-                        )
+                    DemoAccountStore.addPendingOrder(
+                        symbol = _symbol.value,
+                        side = _side.value,
+                        price = limit,
+                        quantity = _quantity.value,
+                        leverage = _leverage.value
+                    )
 
                 _message.value =
                     if (success) {
@@ -1218,79 +950,49 @@ class TradeViewModel : ViewModel() {
                 .pendingOrders
                 .value
 
-        if (
-            orders.isEmpty()
-        ) {
+        if (orders.isEmpty()) {
+            return
+        }
+
+        if (DemoAccountStore.position.value != null) {
             return
         }
 
         val currentSymbol =
             _symbol.value
 
-        val positionAlreadyOpen =
-            DemoAccountStore.position.value !=
-                null
-
-        if (
-            positionAlreadyOpen
-        ) {
-            return
-        }
-
         val triggered =
             orders.firstOrNull { order ->
 
-                if (
-                    order.symbol !=
-                    currentSymbol
-                ) {
-                    false
-                } else {
+                if (order.symbol != currentSymbol) {
+                    return@firstOrNull false
+                }
 
-                    when (
-                        order.side
-                    ) {
+                when (order.side) {
 
-                        PositionSide.LONG ->
-                            currentPrice <=
-                                order.price
+                    PositionSide.LONG ->
+                        currentPrice <= order.price
 
-                        PositionSide.SHORT ->
-                            currentPrice >=
-                                order.price
-                    }
+                    PositionSide.SHORT ->
+                        currentPrice >= order.price
                 }
             }
 
-        if (
-            triggered == null
-        ) {
+        if (triggered == null) {
             return
         }
 
-        DemoAccountStore
-            .cancelPendingOrder(
-                triggered.id
-            )
+        DemoAccountStore.cancelPendingOrder(
+            triggered.id
+        )
 
-        DemoAccountStore
-            .openMarketPosition(
-
-                symbol =
-                    triggered.symbol,
-
-                side =
-                    triggered.side,
-
-                entryPrice =
-                    currentPrice,
-
-                quantity =
-                    triggered.quantity,
-
-                leverage =
-                    triggered.leverage
-            )
+        DemoAccountStore.openMarketPosition(
+            symbol = triggered.symbol,
+            side = triggered.side,
+            entryPrice = currentPrice,
+            quantity = triggered.quantity,
+            leverage = triggered.leverage
+        )
     }
 
     // ========================================================
@@ -1299,18 +1001,14 @@ class TradeViewModel : ViewModel() {
 
     fun closePosition() {
 
-        if (
-            _price.value <=
-            0.0
-        ) {
+        if (_price.value <= 0.0) {
             return
         }
 
         val pnl =
-            DemoAccountStore
-                .closePosition(
-                    _price.value
-                )
+            DemoAccountStore.closePosition(
+                _price.value
+            )
 
         _message.value =
             "Position closed: ${
@@ -1322,100 +1020,76 @@ class TradeViewModel : ViewModel() {
     // CANCEL PENDING
     // ========================================================
 
-    fun cancelPending(
-        id: Long
-    ) {
+    fun cancelPending(id: Long) {
 
-        DemoAccountStore
-            .cancelPendingOrder(
-                id
-            )
+        DemoAccountStore.cancelPendingOrder(
+            id
+        )
 
         _message.value =
             "Pending order cancelled"
     }
 
     // ========================================================
-    // PERCENTAGE
+    // QUANTITY PERCENTAGE
     // ========================================================
 
-    fun setQuantityPercent(
-        percent: Int
-    ) {
+    fun setQuantityPercent(percent: Int) {
 
-        val p =
-            percent
-                .coerceIn(
-                    0,
-                    100
-                )
+        val safePercent =
+            percent.coerceIn(0, 100)
 
         val balance =
-            DemoAccountStore
-                .balance
-                .value
+            DemoAccountStore.balance.value
 
         val leverageValue =
-            _leverage.value
-                .coerceAtLeast(1)
+            _leverage.value.coerceAtLeast(1)
 
         val currentPrice =
             _price.value
 
-        if (
-            currentPrice <=
-            0.0
-        ) {
+        if (currentPrice <= 0.0) {
             return
         }
 
         val marginToUse =
             balance *
-                p /
+                safePercent /
                 100.0
 
         val notional =
             marginToUse *
                 leverageValue
 
-        val quantity =
+        val calculatedQuantity =
             notional /
                 currentPrice
 
         _quantity.value =
-            quantity.coerceAtLeast(
+            calculatedQuantity.coerceAtLeast(
                 0.000001
             )
     }
 
     // ========================================================
-    // PNL / MARGIN
+    // CALCULATIONS
     // ========================================================
 
-    fun unrealizedPnl():
-        Double {
+    fun unrealizedPnl(): Double {
 
-        return DemoAccountStore
-            .calculatePnl(
-                _price.value
-            )
+        return DemoAccountStore.calculatePnl(
+            _price.value
+        )
     }
 
-    fun notional():
-        Double {
+    fun notional(): Double {
 
         val executionPrice =
-            if (
-                _orderType.value ==
-                TradeOrderType.LIMIT
-            ) {
-
+            if (_orderType.value == TradeOrderType.LIMIT) {
                 _limitPrice.value
                     .toDoubleOrNull()
                     ?: _price.value
-
             } else {
-
                 _price.value
             }
 
@@ -1423,20 +1097,22 @@ class TradeViewModel : ViewModel() {
             _quantity.value
     }
 
-    fun estimatedMargin():
-        Double {
+    fun estimatedMargin(): Double {
 
         return notional() /
-            _leverage.value
-                .coerceAtLeast(1)
+            _leverage.value.coerceAtLeast(1)
     }
+
+    // ========================================================
+    // RESET DEMO
+    // ========================================================
 
     fun resetDemo() {
 
         DemoAccountStore.reset()
 
         _message.value =
-            "Demo balance reset"
+            "Demo balance reset to $10,000"
     }
 
     // ========================================================
@@ -1460,6 +1136,10 @@ class TradeViewModel : ViewModel() {
         super.onCleared()
     }
 
+    // ========================================================
+    // FORMAT MONEY
+    // ========================================================
+
     companion object {
 
         fun formatMoney(
@@ -1467,10 +1147,7 @@ class TradeViewModel : ViewModel() {
         ): String {
 
             val sign =
-                if (value >= 0.0)
-                    "+"
-                else
-                    "-"
+                if (value >= 0.0) "+" else "-"
 
             return "$sign${
                 String.format(
