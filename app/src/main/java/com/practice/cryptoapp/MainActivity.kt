@@ -98,7 +98,7 @@ data class GlobalStats(
             .coerceAtLeast(0.0)
 }
 
-private data class BinanceSeed(
+data class BinanceSeed(
     val symbol: String,
     val lastPrice: Double,
     val change24h: Double,
@@ -959,6 +959,9 @@ class BinanceWebSocketManager {
     fun hasMoreCoins(): Boolean {
         return loadedSymbols.size < allSeeds.size
     }
+
+    fun getAllSymbolsData(): List<BinanceSeed> = allSeeds.toList()
+fun getCoinMeta(symbol: String): CoinGeckoMeta? = cgMetaCache[symbol.uppercase()]
 
     fun stop() {
 
