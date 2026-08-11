@@ -149,49 +149,115 @@ fun TradeScreen(
 
     // --- Pair selector dialog ---
     if (showPairMenu) {
-        val allPairs = coins.map { it.symbol + "USDT" }
-        val filteredPairs = allPairs.filter { it.contains(pairSearch, ignoreCase = true) }
+    // Filter coins based on search
+    val filteredCoins = remember(coins, pairSearch) {
+        if (pairSearch.isBlank()) coins
+        else coins.filter {
+            it.symbol.contains(pairSearch, ignoreCase = true) ||
+            it.name.contains(pairSearch, ignoreCase = true) ||
+            (it.symbol + "USDT").contains(pairSearch, ignoreCase = true)
+        }
+    }
 
-        AlertDialog(
-            onDismissRequest = { showPairMenu = false },
-            title = { Text("Select Futures Pair") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = pairSearch,
-                        onValueChange = { pairSearch = it.uppercase(Locale.US) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        placeholder = { Text("BTCUSDT") }
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    filteredPairs.forEach { pair ->
+    AlertDialog(
+        onDismissRequest = { showPairMenu = false },
+        title = { Text("Select Futures Pair") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = pairSearch,
+                    onValueChange = { pairSearch = it.uppercase(Locale.US) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("Search...") }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                    items(filteredCoins, key = { it.symbol }) { coin ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    vm.setSymbol(pair)
+                                    vm.setSymbol(coin.symbol + "USDT")
                                     pairSearch = ""
                                     showPairMenu = false
                                 }
-                                .padding(vertical = 11.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = pair, fontWeight = FontWeight.Medium)
+                            // Logo
+                            if (coin.logo.isNotBlank()) {
+                                AsyncImage(
+                                    model = coin.logo,
+                                    contentDescription = coin.name,
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.LightGray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Name + Symbol
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = coin.name.ifBlank { coin.symbol },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = coin.symbol + "USDT",
+                                    fontSize = 10.sp,
+                                    color = Color.Gray
+                                )
+                            }
+
+                            // Price + Change
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = formatPrice(coin.price),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = formatPct(coin.change24h),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (coin.change24h >= 0) Green else Red
+                                )
+                            }
                         }
+                        HorizontalDivider()
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (pairSearch.isNotBlank()) vm.setSymbol(pairSearch)
-                    pairSearch = ""
-                    showPairMenu = false
-                }) {
-                    Text("Apply", color = PurpleMimosa)
-                }
             }
-        )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                // Manual apply if user typed something
+                if (pairSearch.isNotBlank()) {
+                    vm.setSymbol(pairSearch)
+                }
+                pairSearch = ""
+                showPairMenu = false
+            }) {
+                Text("Apply", color = PurpleMimosa)
+            }
+        }
+    )
     }
 
     // --- Leverage dialog ---
