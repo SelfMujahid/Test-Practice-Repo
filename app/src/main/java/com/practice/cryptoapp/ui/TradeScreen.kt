@@ -43,10 +43,11 @@ fun TradeScreen(
     vm: TradeViewModel = viewModel(),
     cryptoVm: CryptoViewModel
 ) {
-    // Market data from Home
+    // Live coins from home (top 20 or more)
     val coins by cryptoVm.coins.collectAsState()
     val symbol by vm.symbol.collectAsState()
 
+    // Selected coin for header (live)
     val selectedCoin = remember(coins, symbol) {
         coins.find { (it.symbol + "USDT").equals(symbol, ignoreCase = true) }
     }
@@ -74,6 +75,24 @@ fun TradeScreen(
     var showLeverage by rememberSaveable { mutableStateOf(false) }
     var selectedBottomTab by rememberSaveable { mutableStateOf(TradeBottomTab.POSITION) }
     var pairSearch by rememberSaveable { mutableStateOf("") }
+
+    // All symbols (name + symbol) for pair picker — from allSeeds + meta cache
+    val allSymbols = remember {
+        cryptoVm.manager.getAllSymbolsData().map { seed ->
+            val base = seed.symbol.removeSuffix("USDT")
+            val meta = cryptoVm.manager.getCoinMeta(base)
+            CryptoCoin(
+                symbol = base,
+                name = meta?.name ?: base,
+                logo = "", // logo not needed until search
+                price = 0.0,
+                change24h = 0.0,
+                volume24h = 0.0,
+                marketCap = meta?.marketCap ?: 0.0,
+                rank = meta?.marketCapRank ?: Int.MAX_VALUE
+            )
+        }.sortedWith(compareBy<CryptoCoin> { it.rank }.thenBy { it.symbol })
+    }
 
     Column(
         modifier = Modifier
@@ -116,8 +135,6 @@ fun TradeScreen(
                 onLimitPriceChange = vm::setLimitPrice,
                 onOpen = { vm.openOrder(currentPrice) }
             )
-
-            // Placeholder instead of order book (right side empty)
             Spacer(modifier = Modifier.weight(1f))
         }
 
@@ -147,121 +164,153 @@ fun TradeScreen(
         }
     }
 
-    // --- Pair selector dialog ---
+    // ============================================================
+    // PAIR SELECTOR DIALOG
+    // ============================================================
     if (showPairMenu) {
-    // Filter coins based on search
-    val filteredCoins = remember(coins, pairSearch) {
-        if (pairSearch.isBlank()) coins
-        else coins.filter {
-            it.symbol.contains(pairSearch, ignoreCase = true) ||
-            it.name.contains(pairSearch, ignoreCase = true) ||
-            (it.symbol + "USDT").contains(pairSearch, ignoreCase = true)
+        val isSearchActive = pairSearch.isNotBlank()
+
+        // Filtered coins: when searching, show full details using allSeeds + cache
+        val displayCoins = remember(allSymbols, pairSearch) {
+            val baseList = if (isSearchActive) {
+                // Search: full details from allSeeds
+                cryptoVm.manager.getAllSymbolsData().mapNotNull { seed ->
+                    val base = seed.symbol.removeSuffix("USDT")
+                    if (!base.contains(pairSearch, ignoreCase = true) &&
+                        !(base + "USDT").contains(pairSearch, ignoreCase = true)
+                    ) return@mapNotNull null
+                    val meta = cryptoVm.manager.getCoinMeta(base)
+                    CryptoCoin(
+                        symbol = base,
+                        name = meta?.name ?: base,
+                        logo = meta?.logo ?: "",
+                        price = seed.lastPrice,
+                        change24h = seed.change24h,
+                        volume24h = seed.volume24h,
+                        marketCap = meta?.marketCap ?: 0.0,
+                        rank = meta?.marketCapRank ?: Int.MAX_VALUE
+                    )
+                }.sortedWith(compareBy<CryptoCoin> { it.rank }.thenBy { it.symbol })
+            } else {
+                // No search: only symbol/name from allSymbols
+                allSymbols
+            }
+            if (isSearchActive) baseList
+            else baseList.filter { it.symbol.contains(pairSearch, true) || it.name.contains(pairSearch, true) }
         }
-    }
 
-    AlertDialog(
-        onDismissRequest = { showPairMenu = false },
-        title = { Text("Select Futures Pair") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = pairSearch,
-                    onValueChange = { pairSearch = it.uppercase(Locale.US) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(50),
-                    placeholder = { Text("Search...") }
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+        AlertDialog(
+            onDismissRequest = { showPairMenu = false },
+            title = { Text("Select Futures Pair") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = pairSearch,
+                        onValueChange = { pairSearch = it.uppercase(Locale.US) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(50),
+                        placeholder = { Text("Search...") }
+                    )
+                    Spacer(Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                    items(filteredCoins, key = { it.symbol }) { coin ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.setSymbol(coin.symbol + "USDT")
-                                    pairSearch = ""
-                                    showPairMenu = false
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        items(displayCoins, key = { it.symbol }) { coin ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        vm.setSymbol(coin.symbol + "USDT")
+                                        pairSearch = ""
+                                        showPairMenu = false
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Logo (only if search active and logo not blank)
+                                if (isSearchActive && coin.logo.isNotBlank()) {
+                                    AsyncImage(
+                                        model = coin.logo,
+                                        contentDescription = coin.name,
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.LightGray),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Logo
-                            if (coin.logo.isNotBlank()) {
-                                AsyncImage(
-                                    model = coin.logo,
-                                    contentDescription = coin.name,
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.LightGray),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Name + Symbol
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = coin.name.ifBlank { coin.symbol },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = coin.symbol + "USDT",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray
+                                    )
+                                    // Show market cap rank only when searching
+                                    if (isSearchActive && coin.rank != Int.MAX_VALUE) {
+                                        Text(
+                                            text = "Rank #${coin.rank}",
+                                            fontSize = 9.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+
+                                // Price + Change (only when searching)
+                                if (isSearchActive) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = formatPrice(coin.price),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = formatPct(coin.change24h),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (coin.change24h >= 0) Green else Red
+                                        )
+                                    }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            // Name + Symbol
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = coin.name.ifBlank { coin.symbol },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = coin.symbol + "USDT",
-                                    fontSize = 10.sp,
-                                    color = Color.Gray
-                                )
-                            }
-
-                            // Price + Change
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = formatPrice(coin.price),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    text = formatPct(coin.change24h),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (coin.change24h >= 0) Green else Red
-                                )
-                            }
+                            HorizontalDivider()
                         }
-                        HorizontalDivider()
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                // Manual apply if user typed something
-                if (pairSearch.isNotBlank()) {
-                    vm.setSymbol(pairSearch)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (pairSearch.isNotBlank()) {
+                        vm.setSymbol(pairSearch)
+                    }
+                    pairSearch = ""
+                    showPairMenu = false
+                }) {
+                    Text("Apply", color = PurpleMimosa)
                 }
-                pairSearch = ""
-                showPairMenu = false
-            }) {
-                Text("Apply", color = PurpleMimosa)
             }
-        }
-    )
+        )
     }
 
-    // --- Leverage dialog ---
+    // --- Leverage dialog (same as before) ---
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
@@ -294,97 +343,9 @@ fun TradeScreen(
 }
 
 // ============================================================
-// MODE BAR
+// ORDER PANEL (unchanged)
 // ============================================================
-@Composable
-private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        ModeButton("Spot", mode == TradeMode.SPOT) { onSelect(TradeMode.SPOT) }
-        ModeButton("Future", mode == TradeMode.FUTURES) { onSelect(TradeMode.FUTURES) }
-        ModeButton("Bot", mode == TradeMode.BOT) { onSelect(TradeMode.BOT) }
-    }
-}
 
-@Composable
-private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.weight(1f),
-        shape = RoundedCornerShape(7.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
-            contentColor = if (selected) Color.White else Color.DarkGray
-        )
-    ) {
-        Text(text = title, fontSize = 11.sp)
-    }
-}
-
-// ============================================================
-// MARKET HEADER (simplified)
-// ============================================================
-@Composable
-private fun MarketHeader(
-    symbol: String,
-    name: String,
-    logo: String,
-    price: Double,
-    change24h: Double,
-    onPairClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Logo
-            if (logo.isNotBlank()) {
-                AsyncImage(
-                    model = logo,
-                    contentDescription = name,
-                    modifier = Modifier.size(28.dp).clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(Modifier.size(28.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
-                    Text(symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                }
-            }
-
-            Spacer(Modifier.width(8.dp))
-
-            // Symbol + name
-            Column(modifier = Modifier.weight(1f)) {
-                TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(symbol, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                        Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(18.dp))
-                    }
-                }
-                Text(name, fontSize = 9.sp, color = Color.Gray)
-            }
-
-            // Price + 24h change
-            Column(horizontalAlignment = Alignment.End) {
-                Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(formatPct(change24h), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = if (change24h >= 0) Green else Red
-                )
-            }
-        }
-    }
-}
-
-// ============================================================
-// ORDER PANEL
-// ============================================================
 @Composable
 private fun OrderPanel(
     modifier: Modifier,
@@ -458,7 +419,8 @@ private fun OrderPanel(
             // Amount
             var amountText by rememberSaveable { mutableStateOf(quantity.toString()) }
             LaunchedEffect(quantity) {
-                if (amountText.toDoubleOrNull() == null || kotlin.math.abs(amountText.toDoubleOrNull()!! - quantity) > 0.000000001)
+                val current = amountText.toDoubleOrNull()
+                if (current == null || kotlin.math.abs(current - quantity) > 0.000000001)
                     amountText = quantity.toString()
             }
             OutlinedTextField(
@@ -518,7 +480,7 @@ private fun OrderPanel(
 }
 
 // ============================================================
-// BOTTOM TABS
+// BOTTOM TABS & CONTENT (unchanged)
 // ============================================================
 private enum class TradeBottomTab { POSITION, PENDING, HISTORY }
 
@@ -546,9 +508,6 @@ private fun RowScope.BottomTabButton(title: String, selected: Boolean, onClick: 
     }
 }
 
-// ============================================================
-// BOTTOM CONTENT
-// ============================================================
 @Composable
 private fun BottomTradeContent(
     selected: TradeBottomTab,
@@ -568,7 +527,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION
+// ACTIVE POSITION, PENDING, HISTORY (unchanged)
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
@@ -605,9 +564,6 @@ private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double,
     }
 }
 
-// ============================================================
-// PENDING
-// ============================================================
 @Composable
 private fun PendingContent(orders: List<PendingOrder>, onCancel: (Long) -> Unit) {
     Card(
@@ -640,9 +596,6 @@ private fun PendingRow(order: PendingOrder, onCancel: () -> Unit) {
     }
 }
 
-// ============================================================
-// HISTORY
-// ============================================================
 @Composable
 private fun HistoryContent(history: List<TradeHistory>) {
     Card(
@@ -675,7 +628,7 @@ private fun HistoryRow(item: TradeHistory) {
 }
 
 // ============================================================
-// SMALL COMPONENTS
+// SMALL COMPONENTS (unchanged)
 // ============================================================
 @Composable
 private fun RowScope.SideButton(text: String, selected: Boolean, color: Color, onClick: () -> Unit) {
@@ -721,5 +674,4 @@ private fun formatPrice(value: Double): String {
     if (value.isNaN() || value.isInfinite()) return "0"
     return if (value >= 1.0) "%,.2f".format(value) else "%.8f".format(value).trimEnd('0').trimEnd('.')
 }
-
 private fun formatPct(value: Double): String = "%+.2f%%".format(value)
