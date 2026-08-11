@@ -23,12 +23,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.practice.cryptoapp.DemoAccountStore
 import com.practice.cryptoapp.DemoPosition
 import com.practice.cryptoapp.OrderBookLevel
+import com.practice.cryptoapp.PendingOrder
 import com.practice.cryptoapp.PositionSide
 import com.practice.cryptoapp.PurpleMimosa
+import com.practice.cryptoapp.TradeHistory
+import com.practice.cryptoapp.TradeMode
 import com.practice.cryptoapp.TradeOrderType
 import com.practice.cryptoapp.TradeViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
+import kotlin.math.abs
 
 private val Green =
     Color(0xFF16A34A)
@@ -36,8 +40,11 @@ private val Green =
 private val Red =
     Color(0xFFDC2626)
 
-private val DarkBackground =
-    Color(0xFFF7F7F9)
+private val ScreenBackground =
+    Color(0xFFF5F5F7)
+
+private val CardBackground =
+    Color.White
 
 // ============================================================
 // TRADE SCREEN
@@ -49,11 +56,29 @@ fun TradeScreen(
         viewModel()
 ) {
 
+    val mode by
+        vm.mode.collectAsState()
+
     val symbol by
         vm.symbol.collectAsState()
 
     val price by
         vm.price.collectAsState()
+
+    val high24h by
+        vm.high24h.collectAsState()
+
+    val low24h by
+        vm.low24h.collectAsState()
+
+    val change24h by
+        vm.change24h.collectAsState()
+
+    val fundingRate by
+        vm.fundingRate.collectAsState()
+
+    val fundingCountdown by
+        vm.fundingCountdown.collectAsState()
 
     val bids by
         vm.bids.collectAsState()
@@ -82,18 +107,19 @@ fun TradeScreen(
     val position by
         DemoAccountStore.position.collectAsState()
 
+    val pendingOrders by
+        DemoAccountStore.pendingOrders.collectAsState()
+
+    val history by
+        DemoAccountStore.history.collectAsState()
+
     val message by
         vm.message.collectAsState()
 
-    val unrealizedPnl =
+    val pnl =
         vm.unrealizedPnl()
 
-    var coinSearch by
-        rememberSaveable {
-            mutableStateOf("")
-        }
-
-    var showCoinSearch by
+    var showPairMenu by
         remember {
             mutableStateOf(false)
         }
@@ -103,9 +129,16 @@ fun TradeScreen(
             mutableStateOf(false)
         }
 
-    var showTpSl by
-        remember {
-            mutableStateOf(false)
+    var selectedBottomTab by
+        rememberSaveable {
+            mutableStateOf(
+                TradeBottomTab.POSITION
+            )
+        }
+
+    var pairSearch by
+        rememberSaveable {
+            mutableStateOf("")
         }
 
     Column(
@@ -113,91 +146,172 @@ fun TradeScreen(
             Modifier
                 .fillMaxSize()
                 .background(
-                    DarkBackground
+                    ScreenBackground
                 )
     ) {
 
         // ====================================================
-        // TOP BAR
+        // TOP MODE BAR
         // ====================================================
 
-        TradeTopBar(
+        ModeBar(
+            mode = mode,
+            onSelect = {
+                vm.setMode(it)
+            }
+        )
+
+        // ====================================================
+        // MARKET HEADER
+        // ====================================================
+
+        MarketHeader(
             symbol = symbol,
             price = price,
-            onCoinClick = {
-                showCoinSearch = true
+            change24h = change24h,
+            high24h = high24h,
+            low24h = low24h,
+            fundingRate = fundingRate,
+            fundingCountdown = fundingCountdown,
+            onPairClick = {
+                showPairMenu = true
             }
         )
 
         // ====================================================
-        // CHART
+        // MAIN SPLIT SECTION
         // ====================================================
 
-        PriceChart(
-            prices = vm.priceHistory.collectAsState().value,
-            price = price
-        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(
+                        1f,
+                        fill = false
+                    )
+                    .padding(
+                        horizontal = 7.dp
+                    ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    7.dp
+                )
+        ) {
+
+            // ------------------------------------------------
+            // LEFT ORDER PANEL
+            // ------------------------------------------------
+
+            OrderPanel(
+                modifier =
+                    Modifier
+                        .weight(1f),
+                balance = balance,
+                price = price,
+                side = side,
+                orderType = orderType,
+                leverage = leverage,
+                quantity = quantity,
+                limitPrice = limitPrice,
+                position = position,
+                onSideChange = {
+                    vm.setSide(it)
+                },
+                onOrderTypeChange = {
+                    vm.setOrderType(it)
+                },
+                onLeverageClick = {
+                    showLeverage = true
+                },
+                onQuantityChange = {
+                    vm.setQuantity(it)
+                },
+                onPercent = {
+                    vm.setQuantityPercent(it)
+                },
+                onLimitPriceChange = {
+                    vm.setLimitPrice(it)
+                },
+                onOpen = {
+                    vm.openOrder()
+                }
+            )
+
+            // ------------------------------------------------
+            // RIGHT ORDER BOOK
+            // ------------------------------------------------
+
+            OrderBookPanel(
+                modifier =
+                    Modifier
+                        .weight(1f),
+                symbol =
+                    symbol,
+                currentPrice =
+                    price,
+                bids =
+                    bids,
+                asks =
+                    asks
+            )
+        }
 
         // ====================================================
-        // TIMEFRAME
+        // BOTTOM TABS
         // ====================================================
 
-        TimeframeBar()
-
-        // ====================================================
-        // ORDER BOOK
-        // ====================================================
-
-        OrderBookSection(
-            bids = bids,
-            asks = asks,
-            currentPrice = price
-        )
-
-        // ====================================================
-        // ORDER PANEL
-        // ====================================================
-
-        TradeOrderPanel(
-            balance = balance,
-            price = price,
-            orderType = orderType,
-            side = side,
-            leverage = leverage,
-            quantity = quantity,
-            limitPrice = limitPrice,
-            position = position,
-            unrealizedPnl = unrealizedPnl,
-            onOrderTypeChange = {
-                vm.setOrderType(it)
-            },
-            onSideChange = {
-                vm.setSide(it)
-            },
-            onLeverageClick = {
-                showLeverage = true
-            },
-            onQuantityChange = {
-                vm.setQuantity(it)
-            },
-            onLimitPriceChange = {
-                vm.setLimitPrice(it)
-            },
-            onOpen = {
-                vm.openPosition()
-            },
-            onClose = {
-                vm.closePosition()
-            },
-            onTpSl = {
-                showTpSl = true
-            },
-            onReset = {
-                vm.resetDemo()
+        BottomTradeTabs(
+            selected =
+                selectedBottomTab,
+            onSelected = {
+                selectedBottomTab =
+                    it
             }
         )
 
-        if (message.isNotBlank()) {
+        // ====================================================
+        // BOTTOM DATA
+        // ====================================================
+
+        BottomTradeContent(
+
+            selected =
+                selectedBottomTab,
+
+            position =
+                position,
+
+            pendingOrders =
+                pendingOrders,
+
+            history =
+                history,
+
+            currentPrice =
+                price,
+
+            pnl =
+                pnl,
+
+            onClose =
+                {
+                    vm.closePosition()
+                },
+
+            onCancelPending =
+                {
+                    vm.cancelPending(it)
+                }
+        )
+
+        // ====================================================
+        // MESSAGE
+        // ====================================================
+
+        if (
+            message.isNotBlank()
+        ) {
 
             Text(
                 message,
@@ -205,72 +319,144 @@ fun TradeScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(
-                            horizontal = 14.dp,
-                            vertical = 5.dp
+                            horizontal = 10.dp,
+                            vertical = 4.dp
                         ),
-                fontSize = 10.sp,
-                color = PurpleMimosa
+                fontSize =
+                    10.sp,
+                color =
+                    PurpleMimosa
             )
         }
     }
 
     // ========================================================
-    // COIN SEARCH DIALOG
+    // PAIR SELECTOR
     // ========================================================
 
-    if (showCoinSearch) {
+    if (
+        showPairMenu
+    ) {
 
         AlertDialog(
+
             onDismissRequest = {
-                showCoinSearch = false
+                showPairMenu =
+                    false
             },
+
             title = {
-                Text("Trading Pair")
+                Text(
+                    "Select Futures Pair"
+                )
             },
+
             text = {
 
                 Column {
 
                     OutlinedTextField(
+
                         value =
-                            coinSearch,
+                            pairSearch,
+
                         onValueChange = {
-                            coinSearch = it.uppercase()
+                            pairSearch =
+                                it.uppercase()
                         },
-                        singleLine = true,
+
                         modifier =
                             Modifier.fillMaxWidth(),
+
+                        singleLine = true,
+
                         placeholder = {
-                            Text("BTCUSDT")
+                            Text(
+                                "BTCUSDT"
+                            )
                         }
                     )
 
                     Spacer(
-                        Modifier.height(8.dp)
+                        Modifier.height(
+                            10.dp
+                        )
                     )
 
-                    Text(
-                        "Example: BTCUSDT, ETHUSDT, SOLUSDT",
-                        fontSize = 10.sp,
-                        color = Color.Gray
-                    )
+                    val pairs =
+                        listOf(
+                            "BTCUSDT",
+                            "ETHUSDT",
+                            "BNBUSDT",
+                            "SOLUSDT",
+                            "XRPUSDT",
+                            "DOGEUSDT",
+                            "ADAUSDT",
+                            "AVAXUSDT",
+                            "LINKUSDT",
+                            "LTCUSDT"
+                        )
+                            .filter {
+                                it.contains(
+                                    pairSearch,
+                                    true
+                                )
+                            }
+
+                    pairs.forEach { pair ->
+
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+
+                                        vm.changeSymbol(
+                                            pair
+                                        )
+
+                                        pairSearch =
+                                            ""
+
+                                        showPairMenu =
+                                            false
+                                    }
+                                    .padding(
+                                        vertical = 11.dp
+                                    ),
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+
+                            Text(
+                                pair,
+                                fontWeight =
+                                    FontWeight.Medium
+                            )
+                        }
+                    }
                 }
             },
+
             confirmButton = {
 
                 TextButton(
                     onClick = {
 
                         if (
-                            coinSearch.isNotBlank()
+                            pairSearch.isNotBlank()
                         ) {
 
                             vm.changeSymbol(
-                                coinSearch
+                                pairSearch
                             )
                         }
 
-                        showCoinSearch = false
+                        pairSearch =
+                            ""
+
+                        showPairMenu =
+                            false
                     }
                 ) {
 
@@ -288,15 +474,23 @@ fun TradeScreen(
     // LEVERAGE DIALOG
     // ========================================================
 
-    if (showLeverage) {
+    if (
+        showLeverage
+    ) {
 
         AlertDialog(
+
             onDismissRequest = {
-                showLeverage = false
+                showLeverage =
+                    false
             },
+
             title = {
-                Text("Leverage")
+                Text(
+                    "Leverage"
+                )
             },
+
             text = {
 
                 Column {
@@ -313,6 +507,7 @@ fun TradeScreen(
                     ).forEach { value ->
 
                         Row(
+
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
@@ -328,8 +523,10 @@ fun TradeScreen(
                                     .padding(
                                         12.dp
                                     ),
+
                             horizontalArrangement =
-                                Arrangement.SpaceBetween
+                                Arrangement
+                                    .SpaceBetween
                         ) {
 
                             Text(
@@ -353,59 +550,21 @@ fun TradeScreen(
                     }
                 }
             },
+
             confirmButton = {}
-        )
-    }
-
-    // ========================================================
-    // TP / SL DEMO DIALOG
-    // ========================================================
-
-    if (showTpSl) {
-
-        AlertDialog(
-            onDismissRequest = {
-                showTpSl = false
-            },
-            title = {
-                Text(
-                    "Take Profit / Stop Loss"
-                )
-            },
-            text = {
-                Text(
-                    "TP/SL controls are prepared for the demo trading engine. No real order is sent to Binance.",
-                    fontSize = 12.sp
-                )
-            },
-            confirmButton = {
-
-                TextButton(
-                    onClick = {
-                        showTpSl = false
-                    }
-                ) {
-
-                    Text(
-                        "OK",
-                        color =
-                            PurpleMimosa
-                    )
-                }
-            }
         )
     }
 }
 
 // ============================================================
-// TOP BAR
+// MODE BAR
 // ============================================================
 
 @Composable
-private fun TradeTopBar(
-    symbol: String,
-    price: Double,
-    onCoinClick: () -> Unit
+private fun ModeBar(
+    mode: TradeMode,
+    onSelect:
+        (TradeMode) -> Unit
 ) {
 
     Row(
@@ -413,415 +572,361 @@ private fun TradeTopBar(
             Modifier
                 .fillMaxWidth()
                 .background(
-                    Color.White
+                    CardBackground
                 )
-                .padding(
-                    horizontal = 12.dp,
-                    vertical = 10.dp
-                ),
-        verticalAlignment =
-            Alignment.CenterVertically
-    ) {
-
-        Icon(
-            Icons.Default.ArrowBack,
-            contentDescription =
-                "Back",
-            modifier =
-                Modifier.size(22.dp)
-        )
-
-        Spacer(
-            Modifier.width(10.dp)
-        )
-
-        Column(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .clickable {
-                        onCoinClick()
-                    }
-        ) {
-
-            Row(
-                verticalAlignment =
-                    Alignment.CenterVertically
-            ) {
-
-                Text(
-                    symbol,
-                    fontSize = 16.sp,
-                    fontWeight =
-                        FontWeight.Bold
-                )
-
-                Icon(
-                    Icons.Default.KeyboardArrowDown,
-                    contentDescription =
-                        null,
-                    modifier =
-                        Modifier.size(18.dp)
-                )
-            }
-
-            Text(
-                "USDT Perpetual • Demo",
-                fontSize = 9.sp,
-                color = Color.Gray
-            )
-        }
-
-        Column(
-            horizontalAlignment =
-                Alignment.End
-        ) {
-
-            Text(
-                if (price > 0.0)
-                    formatPrice(price)
-                else
-                    "—",
-                fontSize = 15.sp,
-                fontWeight =
-                    FontWeight.Bold
-            )
-
-            Text(
-                "LIVE",
-                fontSize = 8.sp,
-                color = Green
-            )
-        }
-    }
-}
-
-// ============================================================
-// PRICE CHART
-// ============================================================
-
-@Composable
-private fun PriceChart(
-    prices: List<Double>,
-    price: Double
-) {
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(205.dp)
-                .padding(
-                    horizontal = 8.dp,
-                    vertical = 5.dp
-                ),
-        shape =
-            RoundedCornerShape(
-                10.dp
-            )
-    ) {
-
-        Column(
-            Modifier.padding(10.dp)
-        ) {
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceBetween
-            ) {
-
-                Text(
-                    "BTC/USDT",
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Bold
-                )
-
-                Text(
-                    "Candles",
-                    fontSize = 9.sp,
-                    color = PurpleMimosa
-                )
-            }
-
-            Spacer(
-                Modifier.height(8.dp)
-            )
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-            ) {
-
-                if (prices.size < 2) {
-
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-
-                        Text(
-                            "Loading live chart...",
-                            fontSize = 11.sp,
-                            color = Color.Gray
-                        )
-                    }
-
-                } else {
-
-                    androidx.compose.foundation.Canvas(
-                        modifier =
-                            Modifier.fillMaxSize()
-                    ) {
-
-                        val min =
-                            prices.minOrNull()
-                                ?: price
-
-                        val max =
-                            prices.maxOrNull()
-                                ?: price
-
-                        val range =
-                            (max - min)
-                                .takeIf {
-                                    it > 0
-                                }
-                                ?: 1.0
-
-                        val stepX =
-                            size.width /
-                                (prices.size - 1)
-
-                        val points =
-                            prices.mapIndexed {
-                                    index,
-                                    value ->
-
-                                val x =
-                                    index *
-                                        stepX
-
-                                val y =
-                                    size.height -
-                                        (
-                                            (
-                                                value -
-                                                    min
-                                            ) /
-                                                range
-                                        ).toFloat() *
-                                            size.height
-
-                                androidx.compose.ui.geometry
-                                    .Offset(
-                                        x.toFloat(),
-                                        y
-                                    )
-                            }
-
-                        for (
-                            i in 0 until
-                                    points.size - 1
-                        ) {
-
-                            drawLine(
-                                color =
-                                    PurpleMimosa,
-                                start =
-                                    points[i],
-                                end =
-                                    points[i + 1],
-                                strokeWidth =
-                                    3f
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================
-// TIMEFRAME BAR
-// ============================================================
-
-@Composable
-private fun TimeframeBar() {
-
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(
-                    rememberScrollState()
-                )
-                .padding(
-                    horizontal = 8.dp
-                ),
-        horizontalArrangement =
-            Arrangement.spacedBy(5.dp)
-    ) {
-
-        listOf(
-            "1m",
-            "5m",
-            "15m",
-            "30m",
-            "1H",
-            "4H",
-            "1D"
-        ).forEach { timeframe ->
-
-            AssistChip(
-                onClick = {},
-                label = {
-                    Text(
-                        timeframe,
-                        fontSize = 9.sp
-                    )
-                }
-            )
-        }
-    }
-}
-
-// ============================================================
-// ORDER BOOK
-// ============================================================
-
-@Composable
-private fun OrderBookSection(
-    bids: List<OrderBookLevel>,
-    asks: List<OrderBookLevel>,
-    currentPrice: Double
-) {
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
                 .padding(
                     horizontal = 8.dp,
                     vertical = 6.dp
                 ),
-        shape =
-            RoundedCornerShape(
-                10.dp
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                6.dp
             )
     ) {
 
-        Column(
-            Modifier.padding(10.dp)
-        ) {
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceBetween
-            ) {
-
-                Text(
-                    "Order Book",
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-
-                Text(
-                    "Price          Size",
-                    fontSize = 9.sp,
-                    color = Color.Gray
+        ModeButton(
+            title = "Spot",
+            selected =
+                mode ==
+                    TradeMode.SPOT,
+            onClick = {
+                onSelect(
+                    TradeMode.SPOT
                 )
             }
+        )
 
-            Spacer(
-                Modifier.height(5.dp)
-            )
+        ModeButton(
+            title = "Future",
+            selected =
+                mode ==
+                    TradeMode.FUTURES,
+            onClick = {
+                onSelect(
+                    TradeMode.FUTURES
+                )
+            }
+        )
 
-            asks
-                .take(4)
-                .asReversed()
-                .forEach { level ->
-
-                    OrderBookRow(
-                        level = level,
-                        positive = false
-                    )
-                }
-
-            HorizontalDivider()
-
-            Text(
-                if (currentPrice > 0.0)
-                    formatPrice(currentPrice)
-                else
-                    "—",
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            vertical = 5.dp
-                        ),
-                fontSize = 12.sp,
-                fontWeight =
-                    FontWeight.Bold,
-                color =
-                    PurpleMimosa
-            )
-
-            bids
-                .take(4)
-                .forEach { level ->
-
-                    OrderBookRow(
-                        level = level,
-                        positive = true
-                    )
-                }
-        }
+        ModeButton(
+            title = "Bot",
+            selected =
+                mode ==
+                    TradeMode.BOT,
+            onClick = {
+                onSelect(
+                    TradeMode.BOT
+                )
+            }
+        )
     }
 }
 
 @Composable
-private fun OrderBookRow(
-    level: OrderBookLevel,
-    positive: Boolean
+private fun ModeButton(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit
 ) {
 
-    Row(
+    Button(
+
+        onClick =
+            onClick,
+
+        modifier =
+            Modifier.weight(
+                1f
+            ),
+
+        shape =
+            RoundedCornerShape(
+                7.dp
+            ),
+
+        colors =
+            ButtonDefaults
+                .buttonColors(
+
+                    containerColor =
+                        if (selected)
+                            PurpleMimosa
+                        else
+                            Color(
+                                0xFFE9E9ED
+                            ),
+
+                    contentColor =
+                        if (selected)
+                            Color.White
+                        else
+                            Color.DarkGray
+                )
+    ) {
+
+        Text(
+            title,
+            fontSize =
+                11.sp
+        )
+    }
+}
+
+// ============================================================
+// MARKET HEADER
+// ============================================================
+
+@Composable
+private fun MarketHeader(
+    symbol: String,
+    price: Double,
+    change24h: Double,
+    high24h: Double,
+    low24h: Double,
+    fundingRate: Double,
+    fundingCountdown: String,
+    onPairClick: () -> Unit
+) {
+
+    Card(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    vertical = 2.dp
+                    horizontal = 7.dp,
+                    vertical = 4.dp
                 ),
-        horizontalArrangement =
-            Arrangement.SpaceBetween
+        shape =
+            RoundedCornerShape(
+                10.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    CardBackground
+            )
     ) {
 
-        Text(
-            formatPrice(level.price),
-            fontSize = 9.sp,
-            color =
-                if (positive)
-                    Green
-                else
-                    Red
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        9.dp
+                    ),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            // ------------------------------------------------
+            // LEFT: PAIR + 24H CHANGE
+            // ------------------------------------------------
+
+            Column(
+                modifier =
+                    Modifier
+                        .weight(
+                            1.2f
+                        )
+            ) {
+
+                TextButton(
+                    onClick =
+                        onPairClick,
+
+                    contentPadding =
+                        PaddingValues(
+                            0.dp
+                        )
+                ) {
+
+                    Row(
+                        verticalAlignment =
+                            Alignment.CenterVertically
+                    ) {
+
+                        Text(
+                            symbol,
+                            fontSize =
+                                15.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                            color =
+                                Color.Black
+                        )
+
+                        Icon(
+                            Icons.Default
+                                .KeyboardArrowDown,
+                            contentDescription =
+                                null,
+                            modifier =
+                                Modifier.size(
+                                    18.dp
+                                )
+                        )
+                    }
+                }
+
+                Text(
+                    "24h",
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    formatSignedPct(
+                        change24h
+                    ),
+                    fontSize =
+                        11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        if (
+                            change24h >=
+                            0
+                        ) {
+                            Green
+                        } else {
+                            Red
+                        }
+                )
+            }
+
+            // ------------------------------------------------
+            // CENTER: 24H LOW/HIGH
+            // ------------------------------------------------
+
+            Column(
+                modifier =
+                    Modifier.weight(
+                        1f
+                    )
+            ) {
+
+                SmallStat(
+                    "24h Low",
+                    if (
+                        low24h > 0
+                    )
+                        formatPrice(
+                            low24h
+                        )
+                    else
+                        "—"
+                )
+
+                Spacer(
+                    Modifier.height(
+                        5.dp
+                    )
+                )
+
+                SmallStat(
+                    "24h High",
+                    if (
+                        high24h > 0
+                    )
+                        formatPrice(
+                            high24h
+                        )
+                    else
+                        "—"
+                )
+            }
+
+            // ------------------------------------------------
+            // RIGHT: FUNDING
+            // ------------------------------------------------
+
+            Column(
+                modifier =
+                    Modifier.weight(
+                        1f
+                    ),
+                horizontalAlignment =
+                    Alignment.End
+            ) {
+
+                Text(
+                    "Funding Rate",
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    formatFunding(
+                        fundingRate
+                    ),
+                    fontSize =
+                        11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        if (
+                            fundingRate >=
+                            0
+                        ) {
+                            Green
+                        } else {
+                            Red
+                        }
+                )
+
+                Spacer(
+                    Modifier.height(
+                        2.dp
+                    )
+                )
+
+                Text(
+                    "Next",
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    fundingCountdown,
+                    fontSize =
+                        10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        PurpleMimosa
+                )
+            }
+        }
+
+        Divider(
+            modifier =
+                Modifier.padding(
+                    horizontal = 9.dp
+                )
         )
 
         Text(
-            String.format(
-                Locale.US,
-                "%.4f",
-                level.quantity
-            ),
-            fontSize = 9.sp,
-            color = Color.Gray
+            if (price > 0)
+                formatPrice(price)
+            else
+                "Loading...",
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 9.dp,
+                        vertical = 5.dp
+                    ),
+            fontSize =
+                11.sp,
+            color =
+                Color.Gray
         )
     }
 }
@@ -831,94 +936,66 @@ private fun OrderBookRow(
 // ============================================================
 
 @Composable
-private fun TradeOrderPanel(
+private fun OrderPanel(
+    modifier: Modifier,
     balance: Double,
     price: Double,
-    orderType: TradeOrderType,
     side: PositionSide,
+    orderType: TradeOrderType,
     leverage: Int,
     quantity: Double,
     limitPrice: String,
     position: DemoPosition?,
-    unrealizedPnl: Double,
-    onOrderTypeChange:
-        (TradeOrderType) -> Unit,
     onSideChange:
         (PositionSide) -> Unit,
+    onOrderTypeChange:
+        (TradeOrderType) -> Unit,
     onLeverageClick: () -> Unit,
     onQuantityChange:
         (Double) -> Unit,
+    onPercent:
+        (Int) -> Unit,
     onLimitPriceChange:
         (String) -> Unit,
-    onOpen: () -> Unit,
-    onClose: () -> Unit,
-    onTpSl: () -> Unit,
-    onReset: () -> Unit
+    onOpen: () -> Unit
 ) {
 
     Card(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 8.dp,
-                    vertical = 5.dp
-                ),
+            modifier
+                .fillMaxHeight(),
         shape =
             RoundedCornerShape(
-                12.dp
+                10.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    CardBackground
             )
     ) {
 
         Column(
-            Modifier.padding(12.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(
+                        9.dp
+                    )
         ) {
 
-            // ------------------------------------------------
-            // BALANCE
-            // ------------------------------------------------
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceBetween
-            ) {
-
-                Column {
-
-                    Text(
-                        "Available",
-                        fontSize = 8.sp,
-                        color = Color.Gray
-                    )
-
-                    Text(
-                        "$" +
-                            String.format(
-                                Locale.US,
-                                "%,.2f",
-                                balance
-                            ),
-                        fontSize = 13.sp,
-                        fontWeight =
-                            FontWeight.Bold
-                    )
-                }
-
-                TextButton(
-                    onClick = onReset
-                ) {
-
-                    Text(
-                        "Reset Demo",
-                        color =
-                            PurpleMimosa
-                    )
-                }
-            }
+            Text(
+                "Place Order",
+                fontSize =
+                    12.sp,
+                fontWeight =
+                    FontWeight.Bold
+            )
 
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(
+                    7.dp
+                )
             )
 
             // ------------------------------------------------
@@ -930,7 +1007,7 @@ private fun TradeOrderPanel(
             ) {
 
                 SideButton(
-                    title = "Long",
+                    text = "Long",
                     selected =
                         side ==
                             PositionSide.LONG,
@@ -944,11 +1021,13 @@ private fun TradeOrderPanel(
                 )
 
                 Spacer(
-                    Modifier.width(6.dp)
+                    Modifier.width(
+                        5.dp
+                    )
                 )
 
                 SideButton(
-                    title = "Short",
+                    text = "Short",
                     selected =
                         side ==
                             PositionSide.SHORT,
@@ -963,11 +1042,13 @@ private fun TradeOrderPanel(
             }
 
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(
+                    7.dp
+                )
             )
 
             // ------------------------------------------------
-            // ORDER TYPE
+            // MARKET / LIMIT
             // ------------------------------------------------
 
             Row(
@@ -976,43 +1057,31 @@ private fun TradeOrderPanel(
                     Arrangement.SpaceBetween
             ) {
 
-                Text(
-                    "Order",
-                    fontSize = 10.sp,
-                    fontWeight =
-                        FontWeight.Bold
-                )
-
-                Row {
-
-                    OrderTypeButton(
-                        "Market",
-                        orderType ==
-                            TradeOrderType.MARKET
-                    ) {
-                        onOrderTypeChange(
-                            TradeOrderType.MARKET
-                        )
-                    }
-
-                    Spacer(
-                        Modifier.width(4.dp)
+                SmallOrderType(
+                    "Market",
+                    orderType ==
+                        TradeOrderType.MARKET
+                ) {
+                    onOrderTypeChange(
+                        TradeOrderType.MARKET
                     )
+                }
 
-                    OrderTypeButton(
-                        "Limit",
-                        orderType ==
-                            TradeOrderType.LIMIT
-                    ) {
-                        onOrderTypeChange(
-                            TradeOrderType.LIMIT
-                        )
-                    }
+                SmallOrderType(
+                    "Limit",
+                    orderType ==
+                        TradeOrderType.LIMIT
+                ) {
+                    onOrderTypeChange(
+                        TradeOrderType.LIMIT
+                    )
                 }
             }
 
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(
+                    7.dp
+                )
             )
 
             // ------------------------------------------------
@@ -1023,17 +1092,45 @@ private fun TradeOrderPanel(
                 onClick =
                     onLeverageClick,
                 modifier =
-                    Modifier.fillMaxWidth()
+                    Modifier.fillMaxWidth(),
+                contentPadding =
+                    PaddingValues(
+                        vertical = 6.dp
+                    )
             ) {
 
                 Text(
-                    "${leverage}x Leverage",
-                    fontSize = 11.sp
+                    "${leverage}x",
+                    fontSize =
+                        10.sp
                 )
             }
 
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(
+                    7.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // AVAILABLE
+            // ------------------------------------------------
+
+            SmallStat(
+                "Available",
+                "${
+                    String.format(
+                        Locale.US,
+                        "%,.2f",
+                        balance
+                    )
+               } USDT"
+            )
+
+            Spacer(
+                Modifier.height(
+                    6.dp
+                )
             )
 
             // ------------------------------------------------
@@ -1055,41 +1152,127 @@ private fun TradeOrderPanel(
                     singleLine = true,
                     label = {
                         Text(
-                            "Limit Price"
+                            "Price",
+                            fontSize =
+                                10.sp
                         )
-                    }
+                    },
+                    textStyle =
+                        LocalTextStyle.current.copy(
+                            fontSize =
+                                11.sp
+                        )
                 )
 
                 Spacer(
-                    Modifier.height(8.dp)
+                    Modifier.height(
+                        6.dp
+                    )
                 )
             }
 
             // ------------------------------------------------
-            // QUANTITY
+            // AMOUNT
             // ------------------------------------------------
 
-            Text(
-                "Quantity",
-                fontSize = 10.sp,
-                fontWeight =
-                    FontWeight.Bold
+            OutlinedTextField(
+                value =
+                    String.format(
+                        Locale.US,
+                        "%.6f",
+                        quantity
+                    ),
+                onValueChange = {
+                    it.toDoubleOrNull()
+                        ?.let(
+                            onQuantityChange
+                        )
+                },
+                modifier =
+                    Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = {
+                    Text(
+                        "Amount",
+                        fontSize =
+                            10.sp
+                    )
+                },
+                trailingIcon = {
+                    Text(
+                        "BTC",
+                        fontSize =
+                            9.sp
+                    )
+                },
+                textStyle =
+                    LocalTextStyle.current.copy(
+                        fontSize =
+                            11.sp
+                    )
             )
 
+            Spacer(
+                Modifier.height(
+                    5.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // PERCENTAGE
+            // ------------------------------------------------
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.SpaceBetween
+            ) {
+
+                listOf(
+                    25,
+                    50,
+                    75,
+                    100
+                ).forEach { percent ->
+
+                    TextButton(
+                        onClick = {
+                            onPercent(
+                                percent
+                            )
+                        },
+                        contentPadding =
+                            PaddingValues(
+                                horizontal = 4.dp
+                            )
+                    ) {
+
+                        Text(
+                            "$percent%",
+                            fontSize =
+                                9.sp,
+                            color =
+                                PurpleMimosa
+                        )
+                    }
+                }
+            }
+
             Slider(
-
                 value =
-                    quantity.toFloat(),
-
+                    quantity
+                        .toFloat()
+                        .coerceIn(
+                            0.000001f,
+                            1.0f
+                        ),
                 onValueChange = {
                     onQuantityChange(
                         it.toDouble()
                     )
                 },
-
                 valueRange =
                     0.000001f..1.0f,
-
                 colors =
                     SliderDefaults.colors(
                         thumbColor =
@@ -1099,18 +1282,10 @@ private fun TradeOrderPanel(
                     )
             )
 
-            Text(
-                String.format(
-                    Locale.US,
-                    "%.6f BTC",
-                    quantity
-                ),
-                fontSize = 10.sp,
-                color = Color.Gray
-            )
-
             Spacer(
-                Modifier.height(8.dp)
+                Modifier.height(
+                    4.dp
+                )
             )
 
             // ------------------------------------------------
@@ -1122,13 +1297,10 @@ private fun TradeOrderPanel(
                     orderType ==
                     TradeOrderType.LIMIT
                 ) {
-
                     limitPrice
                         .toDoubleOrNull()
                         ?: price
-
                 } else {
-
                     price
                 }
 
@@ -1146,36 +1318,38 @@ private fun TradeOrderPanel(
                     notional
                 }
 
-            TradeInfoRow(
-                "Price",
-                if (executionPrice > 0)
-                    formatPrice(executionPrice)
-                else
-                    "—"
-            )
-
-            TradeInfoRow(
+            SmallStat(
                 "Size",
-                "$" +
+                "${
                     String.format(
                         Locale.US,
                         "%,.2f",
                         notional
                     )
+               } USDT"
             )
 
-            TradeInfoRow(
+            Spacer(
+                Modifier.height(
+                    3.dp
+                )
+            )
+
+            SmallStat(
                 "Margin",
-                "$" +
+                "${
                     String.format(
                         Locale.US,
                         "%,.2f",
                         margin
                     )
+               } USDT"
             )
 
             Spacer(
-                Modifier.height(10.dp)
+                Modifier.height(
+                    8.dp
+                )
             )
 
             // ------------------------------------------------
@@ -1183,30 +1357,29 @@ private fun TradeOrderPanel(
             // ------------------------------------------------
 
             Button(
-
                 onClick =
                     onOpen,
-
                 modifier =
                     Modifier.fillMaxWidth(),
-
                 enabled =
-                    position == null &&
-                        price > 0.0,
-
+                    price > 0.0 &&
+                        position == null,
                 colors =
-                    ButtonDefaults
-                        .buttonColors(
-                            containerColor =
-                                if (
-                                    side ==
-                                    PositionSide.LONG
-                                ) {
-                                    Green
-                                } else {
-                                    Red
-                                }
-                        )
+                    ButtonDefaults.buttonColors(
+                        containerColor =
+                            if (
+                                side ==
+                                PositionSide.LONG
+                            ) {
+                                Green
+                            } else {
+                                Red
+                            }
+                    ),
+                contentPadding =
+                    PaddingValues(
+                        vertical = 10.dp
+                    )
             ) {
 
                 Text(
@@ -1217,37 +1390,9 @@ private fun TradeOrderPanel(
                         "OPEN LONG"
                     } else {
                         "OPEN SHORT"
-                    }
-                )
-            }
-
-            // ------------------------------------------------
-            // POSITION
-            // ------------------------------------------------
-
-            if (
-                position != null
-            ) {
-
-                Spacer(
-                    Modifier.height(10.dp)
-                )
-
-                PositionCard(
-                    position =
-                        position,
-
-                    currentPrice =
-                        price,
-
-                    pnl =
-                        unrealizedPnl,
-
-                    onClose =
-                        onClose,
-
-                    onTpSl =
-                        onTpSl
+                    },
+                    fontSize =
+                        11.sp
                 )
             }
         }
@@ -1255,120 +1400,1226 @@ private fun TradeOrderPanel(
 }
 
 // ============================================================
-// SIDE BUTTON
+// ORDER BOOK
 // ============================================================
 
 @Composable
-private fun RowScope.SideButton(
-    title: String,
-    selected: Boolean,
-    color: Color,
-    onClick: () -> Unit
+private fun OrderBookPanel(
+    modifier: Modifier,
+    symbol: String,
+    currentPrice: Double,
+    bids: List<OrderBookLevel>,
+    asks: List<OrderBookLevel>
 ) {
 
-    Button(
-
-        onClick = onClick,
-
+    Card(
         modifier =
-            Modifier.weight(1f),
-
-        colors =
-            ButtonDefaults.buttonColors(
-
-                containerColor =
-                    if (selected)
-                        color
-                    else
-                        Color.LightGray,
-
-                contentColor =
-                    if (selected)
-                        Color.White
-                    else
-                        Color.DarkGray
-            ),
-
+            modifier
+                .fillMaxHeight(),
         shape =
             RoundedCornerShape(
-                8.dp
+                10.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    CardBackground
+            )
+    ) {
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    8.dp
+                )
+        ) {
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.SpaceBetween
+            ) {
+
+                Text(
+                    "Order Book",
+                    fontSize =
+                        12.sp,
+                    fontWeight =
+                        FontWeight.Bold
+                )
+
+                Text(
+                    symbol,
+                    fontSize =
+                        9.sp,
+                    color =
+                        Color.Gray
+                )
+            }
+
+            Spacer(
+                Modifier.height(
+                    5.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // HEADERS
+            // ------------------------------------------------
+
+            Row(
+                Modifier.fillMaxWidth()
+            ) {
+
+                Text(
+                    "USDT",
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        ),
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    "Price",
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        ),
+                    textAlign =
+                        androidx.compose.ui.text.style
+                            .TextAlign.Center,
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+
+                Text(
+                    "Amount",
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        ),
+                    textAlign =
+                        androidx.compose.ui.text.style
+                            .TextAlign.End,
+                    fontSize =
+                        8.sp,
+                    color =
+                        Color.Gray
+                )
+            }
+
+            Spacer(
+                Modifier.height(
+                    3.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // SELL ORDERS
+            // ------------------------------------------------
+
+            asks
+                .take(6)
+                .asReversed()
+                .forEach { level ->
+
+                    OrderBookLine(
+                        level =
+                            level,
+                        color =
+                            Red
+                    )
+                }
+
+            // ------------------------------------------------
+            // CURRENT PRICE
+            // ------------------------------------------------
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Color(
+                            0xFFF3EDF7
+                        ),
+                        RoundedCornerShape(
+                            5.dp
+                        )
+                    )
+                    .padding(
+                        vertical = 5.dp
+                    )
+            ) {
+
+                Text(
+                    if (
+                        currentPrice > 0
+                    ) {
+                        formatPrice(
+                            currentPrice
+                        )
+                    } else {
+                        "—"
+                    },
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    textAlign =
+                        androidx.compose.ui.text.style
+                            .TextAlign.Center,
+                    fontSize =
+                        11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        PurpleMimosa
+                )
+            }
+
+            Spacer(
+                Modifier.height(
+                    3.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // BUY ORDERS
+            // ------------------------------------------------
+
+            bids
+                .take(6)
+                .forEach { level ->
+
+                    OrderBookLine(
+                        level =
+                            level,
+                        color =
+                            Green
+                    )
+                }
+
+            Spacer(
+                Modifier.height(
+                    6.dp
+                )
+            )
+
+            // ------------------------------------------------
+            // BUY / SELL PERCENTAGE
+            // ------------------------------------------------
+
+            val buyTotal =
+                bids
+                    .take(10)
+                    .sumOf {
+                        it.quantity
+                    }
+
+            val sellTotal =
+                asks
+                    .take(10)
+                    .sumOf {
+                        it.quantity
+                    }
+
+            val total =
+                (
+                    buyTotal +
+                        sellTotal
+                )
+                    .takeIf {
+                        it > 0.0
+                    }
+                    ?: 1.0
+
+            val buyPct =
+                (
+                    buyTotal /
+                        total
+                    ) * 100.0
+
+            val sellPct =
+                100.0 -
+                    buyPct
+
+            Text(
+                "Order Ratio",
+                fontSize =
+                    9.sp,
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                Modifier.height(
+                    4.dp
+                )
+            )
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.SpaceBetween
+            ) {
+
+                Text(
+                    "Buy ${
+                        String.format(
+                            Locale.US,
+                            "%.1f",
+                            buyPct
+                        )
+                    }%",
+                    fontSize =
+                        9.sp,
+                    color =
+                        Green
+                )
+
+                Text(
+                    "Sell ${
+                        String.format(
+                            Locale.US,
+                            "%.1f",
+                            sellPct
+                        )
+                    }%",
+                    fontSize =
+                        9.sp,
+                    color =
+                        Red
+                )
+            }
+
+            Spacer(
+                Modifier.height(
+                    4.dp
+                )
+            )
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+            ) {
+
+                Box(
+                    Modifier
+                        .weight(
+                            buyPct
+                                .toFloat()
+                                .coerceIn(
+                                    0.0f,
+                                    100.0f
+                                )
+                    )
+                    .fillMaxHeight()
+                    .background(
+                        Green,
+                        RoundedCornerShape(
+                            4.dp
+                        )
+                    )
+                )
+
+                Spacer(
+                    Modifier.width(
+                        2.dp
+                    )
+                )
+
+                Box(
+                    Modifier
+                        .weight(
+                            sellPct
+                                .toFloat()
+                                .coerceIn(
+                                    0.0f,
+                                    100.0f
+                                )
+                    )
+                    .fillMaxHeight()
+                    .background(
+                        Red,
+                        RoundedCornerShape(
+                            4.dp
+                        )
+                    )
+                )
+            }
+        }
+    }
+}
+
+// ============================================================
+// ORDER BOOK LINE
+// ============================================================
+
+@Composable
+private fun OrderBookLine(
+    level: OrderBookLevel,
+    color: Color
+) {
+
+    val usdtValue =
+        level.price *
+            level.quantity
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                vertical = 2.dp
             )
     ) {
 
         Text(
-            title
+            String.format(
+                Locale.US,
+                "%.2f",
+                usdtValue
+            ),
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+            fontSize =
+                8.sp,
+            color =
+                Color.Gray
+        )
+
+        Text(
+            formatPrice(
+                level.price
+            ),
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+            textAlign =
+                androidx.compose.ui.text.style
+                    .TextAlign.Center,
+            fontSize =
+                8.sp,
+            color =
+                color
+        )
+
+        Text(
+            String.format(
+                Locale.US,
+                "%.4f",
+                level.quantity
+            ),
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+            textAlign =
+                androidx.compose.ui.text.style
+                    .TextAlign.End,
+            fontSize =
+                8.sp,
+            color =
+                Color.Gray
         )
     }
 }
 
 // ============================================================
-// ORDER TYPE BUTTON
+// BOTTOM TABS
 // ============================================================
 
+private enum class TradeBottomTab {
+    POSITION,
+    PENDING,
+    HISTORY
+}
+
 @Composable
-private fun OrderTypeButton(
+private fun BottomTradeTabs(
+    selected: TradeBottomTab,
+    onSelected:
+        (TradeBottomTab) -> Unit
+) {
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                CardBackground
+            )
+            .padding(
+                horizontal = 7.dp,
+                vertical = 5.dp
+            ),
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                5.dp
+            )
+    ) {
+
+        BottomTabButton(
+            "Active Position",
+            selected ==
+                TradeBottomTab.POSITION
+        ) {
+            onSelected(
+                TradeBottomTab.POSITION
+            )
+        }
+
+        BottomTabButton(
+            "Pending",
+            selected ==
+                TradeBottomTab.PENDING
+        ) {
+            onSelected(
+                TradeBottomTab.PENDING
+            )
+        }
+
+        BottomTabButton(
+            "History",
+            selected ==
+                TradeBottomTab.HISTORY
+        ) {
+            onSelected(
+                TradeBottomTab.HISTORY
+            )
+        }
+    }
+}
+
+@Composable
+private fun BottomTabButton(
     title: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
 
     TextButton(
-        onClick = onClick
+        onClick =
+            onClick,
+        modifier =
+            Modifier.weight(
+                1f
+            )
     ) {
 
         Text(
             title,
-            color =
-                if (selected)
-                    PurpleMimosa
-                else
-                    Color.Gray,
-
+            fontSize =
+                9.sp,
             fontWeight =
                 if (selected)
                     FontWeight.Bold
                 else
-                    FontWeight.Normal
+                    FontWeight.Normal,
+            color =
+                if (selected)
+                    PurpleMimosa
+                else
+                    Color.Gray
         )
     }
 }
 
 // ============================================================
-// TRADE INFO
+// BOTTOM CONTENT
 // ============================================================
 
 @Composable
-private fun TradeInfoRow(
+private fun BottomTradeContent(
+    selected: TradeBottomTab,
+    position: DemoPosition?,
+    pendingOrders: List<PendingOrder>,
+    history: List<TradeHistory>,
+    currentPrice: Double,
+    pnl: Double,
+    onClose: () -> Unit,
+    onCancelPending:
+        (Long) -> Unit
+) {
+
+    when (
+        selected
+    ) {
+
+        TradeBottomTab.POSITION -> {
+
+            ActivePositionContent(
+                position =
+                    position,
+                currentPrice =
+                    currentPrice,
+                pnl =
+                    pnl,
+                onClose =
+                    onClose
+            )
+        }
+
+        TradeBottomTab.PENDING -> {
+
+            PendingContent(
+                orders =
+                    pendingOrders,
+                onCancel =
+                    onCancelPending
+            )
+        }
+
+        TradeBottomTab.HISTORY -> {
+
+            HistoryContent(
+                history =
+                    history
+            )
+        }
+    }
+}
+
+// ============================================================
+// ACTIVE POSITION
+// ============================================================
+
+@Composable
+private fun ActivePositionContent(
+    position: DemoPosition?,
+    currentPrice: Double,
+    pnl: Double,
+    onClose: () -> Unit
+) {
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 7.dp,
+                    vertical = 4.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                9.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    CardBackground
+            )
+    ) {
+
+        if (
+            position == null
+        ) {
+
+            Text(
+                "No active position",
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            14.dp
+                        ),
+                textAlign =
+                    androidx.compose.ui.text.style
+                        .TextAlign.Center,
+                fontSize =
+                    10.sp,
+                color =
+                    Color.Gray
+            )
+
+        } else {
+
+            Column(
+                Modifier.padding(
+                    10.dp
+                )
+            ) {
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween
+                ) {
+
+                    Text(
+                        if (
+                            position.side ==
+                            PositionSide.LONG
+                        ) {
+                            "LONG"
+                        } else {
+                            "SHORT"
+                        },
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            if (
+                                position.side ==
+                                PositionSide.LONG
+                            ) {
+                                Green
+                            } else {
+                                Red
+                            }
+                    )
+
+                    Text(
+                        "${position.symbol} ${position.leverage}x",
+                        fontSize =
+                            10.sp
+                    )
+                }
+
+                Spacer(
+                    Modifier.height(
+                        6.dp
+                    )
+                )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween
+                ) {
+
+                    BottomValue(
+                        "Entry",
+                        formatPrice(
+                            position.entryPrice
+                        )
+                    )
+
+                    BottomValue(
+                        "Mark",
+                        formatPrice(
+                            currentPrice
+                        )
+                    )
+
+                    BottomValue(
+                        "Qty",
+                        String.format(
+                            Locale.US,
+                            "%.6f",
+                            position.quantity
+                        )
+                    )
+
+                    BottomValue(
+                        "PnL",
+                        TradeViewModel
+                            .formatMoney(
+                                pnl
+                            ),
+                        if (
+                            pnl >= 0
+                        ) {
+                            Green
+                        } else {
+                            Red
+                        }
+                    )
+                }
+
+                Spacer(
+                    Modifier.height(
+                        7.dp
+                    )
+                )
+
+                Button(
+                    onClick =
+                        onClose,
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    colors =
+                        ButtonDefaults
+                            .buttonColors(
+                                containerColor =
+                                    Red
+                            )
+                ) {
+
+                    Text(
+                        "CLOSE POSITION",
+                        fontSize =
+                            10.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// PENDING
+// ============================================================
+
+@Composable
+private fun PendingContent(
+    orders: List<PendingOrder>,
+    onCancel:
+        (Long) -> Unit
+) {
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 7.dp,
+                    vertical = 4.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                9.dp
+            )
+    ) {
+
+        if (
+            orders.isEmpty()
+        ) {
+
+            Text(
+                "No pending orders",
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            14.dp
+                        ),
+                textAlign =
+                    androidx.compose.ui.text.style
+                        .TextAlign.Center,
+                fontSize =
+                    10.sp,
+                color =
+                    Color.Gray
+            )
+
+        } else {
+
+            Column(
+                Modifier.padding(
+                    8.dp
+                )
+            ) {
+
+                orders.forEach { order ->
+
+                    PendingRow(
+                        order =
+                            order,
+                        onCancel =
+                            {
+                                onCancel(
+                                    order.id
+                                )
+                            }
+                    )
+
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// PENDING ROW
+// ============================================================
+
+@Composable
+private fun PendingRow(
+    order: PendingOrder,
+    onCancel: () -> Unit
+) {
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    vertical = 6.dp
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+
+        Column(
+            Modifier.weight(
+                1f
+            )
+        ) {
+
+            Text(
+                "${order.symbol} ${
+                    if (
+                        order.side ==
+                        PositionSide.LONG
+                    ) {
+                        "LONG"
+                    } else {
+                        "SHORT"
+                    }
+                }",
+                fontSize =
+                    9.sp,
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Text(
+                "Limit ${
+                    formatPrice(
+                        order.price
+                    )
+                } • ${
+                    String.format(
+                        Locale.US,
+                        "%.6f",
+                        order.quantity
+                    )
+                }",
+                fontSize =
+                    8.sp,
+                color =
+                    Color.Gray
+            )
+        }
+
+        Text(
+            "${order.leverage}x",
+            fontSize =
+                9.sp
+        )
+
+        TextButton(
+            onClick =
+                onCancel
+        ) {
+
+            Text(
+                "Cancel",
+                fontSize =
+                    9.sp,
+                color =
+                    Red
+            )
+        }
+    }
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+
+@Composable
+private fun HistoryContent(
+    history: List<TradeHistory>
+) {
+
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 7.dp,
+                    vertical = 4.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                9.dp
+            )
+    ) {
+
+        if (
+            history.isEmpty()
+        ) {
+
+            Text(
+                "No trading history",
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            14.dp
+                        ),
+                textAlign =
+                    androidx.compose.ui.text.style
+                        .TextAlign.Center,
+                fontSize =
+                    10.sp,
+                color =
+                    Color.Gray
+            )
+
+        } else {
+
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .heightIn(
+                            max = 160.dp
+                        )
+            ) {
+
+                items(
+                    history,
+                    key = {
+                        it.id
+                    }
+                ) { item ->
+
+                    HistoryRow(
+                        item
+                    )
+
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// HISTORY ROW
+// ============================================================
+
+@Composable
+private fun HistoryRow(
+    item: TradeHistory
+) {
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 9.dp,
+                vertical = 7.dp
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+
+        Column(
+            Modifier.weight(
+                1f
+            )
+        ) {
+
+            Text(
+                "${item.symbol} ${
+                    if (
+                        item.side ==
+                        PositionSide.LONG
+                    ) {
+                        "LONG"
+                    } else {
+                        "SHORT"
+                    }
+                }",
+                fontSize =
+                    9.sp,
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Text(
+                "${formatPrice(item.entryPrice)} → ${
+                    formatPrice(item.exitPrice)
+                }",
+                fontSize =
+                    8.sp,
+                color =
+                    Color.Gray
+            )
+        }
+
+        Text(
+            TradeViewModel.formatMoney(
+                item.pnl
+            ),
+            fontSize =
+                10.sp,
+            fontWeight =
+                FontWeight.Bold,
+            color =
+                if (
+                    item.pnl >=
+                    0
+                ) {
+                    Green
+                } else {
+                    Red
+                }
+        )
+    }
+}
+
+// ============================================================
+// SMALL COMPONENTS
+// ============================================================
+
+@Composable
+private fun SideButton(
+    text: String,
+    selected: Boolean,
+    color: Color,
+    onClick: () -> Unit
+) {
+
+    Button(
+        onClick =
+            onClick,
+        modifier =
+            Modifier.weight(
+                1f
+            ),
+        colors =
+            ButtonDefaults
+                .buttonColors(
+                    containerColor =
+                        if (selected)
+                            color
+                        else
+                            Color(
+                                0xFFE7E7EA
+                            ),
+                    contentColor =
+                        if (selected)
+                            Color.White
+                        else
+                            Color.DarkGray
+                ),
+        shape =
+            RoundedCornerShape(
+                7.dp
+            ),
+        contentPadding =
+            PaddingValues(
+                vertical = 7.dp
+            )
+    ) {
+
+        Text(
+            text,
+            fontSize =
+                10.sp
+        )
+    }
+}
+
+@Composable
+private fun SmallOrderType(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+
+    TextButton(
+        onClick =
+            onClick,
+        contentPadding =
+            PaddingValues(
+                horizontal = 4.dp,
+                vertical = 0.dp
+            )
+    ) {
+
+        Text(
+            text,
+            fontSize =
+                9.sp,
+            fontWeight =
+                if (selected)
+                    FontWeight.Bold
+                else
+                    FontWeight.Normal,
+            color =
+                if (selected)
+                    PurpleMimosa
+                else
+                    Color.Gray
+        )
+    }
+}
+
+@Composable
+private fun SmallStat(
     label: String,
     value: String
 ) {
 
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement =
-            Arrangement.SpaceBetween
-    ) {
+    Column {
 
         Text(
             label,
-            fontSize = 9.sp,
-            color = Color.Gray
+            fontSize =
+                8.sp,
+            color =
+                Color.Gray
         )
 
         Text(
             value,
-            fontSize = 9.sp,
+            fontSize =
+                10.sp,
             fontWeight =
-                FontWeight.Medium
+                FontWeight.Bold
         )
     }
-
-    Spacer(
-        Modifier.height(3.dp)
-    )
 }
 
-private fun formatPrice(value: Double): String {
+@Composable
+private fun BottomValue(
+    label: String,
+    value: String,
+    color: Color =
+        Color.Black
+) {
+
+    Column {
+
+        Text(
+            label,
+            fontSize =
+                8.sp,
+            color =
+                Color.Gray
+        )
+
+        Text(
+            value,
+            fontSize =
+                9.sp,
+            fontWeight =
+                FontWeight.Bold,
+            color =
+                color
+        )
+    }
+}
+
+// ============================================================
+// FORMATTING
+// ============================================================
+
+private fun formatPrice(
+    value: Double
+): String {
 
     if (
         value.isNaN() ||
@@ -1377,7 +2628,9 @@ private fun formatPrice(value: Double): String {
         return "0"
     }
 
-    return if (value >= 1.0) {
+    return if (
+        value >= 1.0
+    ) {
 
         String.format(
             Locale.US,
@@ -1397,150 +2650,24 @@ private fun formatPrice(value: Double): String {
     }
 }
 
-// ============================================================
-// POSITION CARD
-// ============================================================
+private fun formatSignedPct(
+    value: Double
+): String {
 
-@Composable
-private fun PositionCard(
-    position: DemoPosition,
-    currentPrice: Double,
-    pnl: Double,
-    onClose: () -> Unit,
-    onTpSl: () -> Unit
-) {
+    return String.format(
+        Locale.US,
+        "%+.2f%%",
+        value
+    )
+}
 
-    Card(
+private fun formatFunding(
+    value: Double
+): String {
 
-        Modifier.fillMaxWidth(),
-
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    Color(0xFFF4F0F8)
-            )
-    ) {
-
-        Column(
-            Modifier.padding(
-                10.dp
-            )
-        ) {
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceBetween
-            ) {
-
-                Text(
-                    if (
-                        position.side ==
-                        PositionSide.LONG
-                    ) {
-                        "LONG"
-                    } else {
-                        "SHORT"
-                    },
-                    fontWeight =
-                        FontWeight.Bold,
-
-                    color =
-                        if (
-                            position.side ==
-                            PositionSide.LONG
-                        ) {
-                            Green
-                        } else {
-                            Red
-                        }
-                )
-
-                Text(
-                    "${position.leverage}x",
-                    fontWeight =
-                        FontWeight.Bold
-                )
-            }
-
-            Spacer(
-                Modifier.height(6.dp)
-            )
-
-            TradeInfoRow(
-                "Entry",
-                formatPrice(
-                    position.entryPrice
-                )
-            )
-
-            TradeInfoRow(
-                "Mark",
-                formatPrice(
-                    currentPrice
-                )
-            )
-
-            TradeInfoRow(
-                "Quantity",
-                String.format(
-                    Locale.US,
-                    "%.6f",
-                    position.quantity
-                )
-            )
-
-            TradeInfoRow(
-                "Unrealized PnL",
-                TradeViewModel.formatMoney(
-                    pnl
-                )
-            )
-
-            Spacer(
-                Modifier.height(8.dp)
-            )
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.spacedBy(
-                        6.dp
-                    )
-            ) {
-
-                OutlinedButton(
-                    onClick =
-                        onTpSl,
-                    modifier =
-                        Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        "TP / SL",
-                        fontSize = 10.sp
-                    )
-                }
-
-                Button(
-                    onClick =
-                        onClose,
-                    modifier =
-                        Modifier.weight(1f),
-                    colors =
-                        ButtonDefaults
-                            .buttonColors(
-                                containerColor =
-                                    Red
-                            )
-                ) {
-
-                    Text(
-                        "Close",
-                        fontSize = 10.sp
-                    )
-                }
-            }
-        }
-    }
+    return String.format(
+        Locale.US,
+        "%+.4f%%",
+        value * 100.0
+    )
 }
