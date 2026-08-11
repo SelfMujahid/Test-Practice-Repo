@@ -5,7 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -93,6 +95,7 @@ fun TradeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(ScreenBackground)
+            .verticalScroll(rememberScrollState())
     ) {
 
         // ====================================================
@@ -128,7 +131,6 @@ fun TradeScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false)
                 .padding(horizontal = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
@@ -676,7 +678,7 @@ private fun OrderPanel(
 ) {
 
     Card(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier,
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
             containerColor = CardBackground
@@ -685,7 +687,7 @@ private fun OrderPanel(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(9.dp)
         ) {
 
@@ -1066,7 +1068,7 @@ private fun OrderBookPanel(
 ) {
 
     Card(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier,
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
             containerColor = CardBackground
@@ -1075,7 +1077,7 @@ private fun OrderBookPanel(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(8.dp)
         ) {
 
@@ -1865,9 +1867,7 @@ private fun HistoryContent(
 
                 items(
                     items = history,
-                    key = {
-                        it.id
-                    }
+                    key = { it.id }
                 ) { item ->
 
                     HistoryRow(item)
