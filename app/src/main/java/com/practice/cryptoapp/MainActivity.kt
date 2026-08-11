@@ -2305,20 +2305,3 @@ fun formatLarge(
             )
     }
 }
-
-// ============================================================
-// DEMO ACCOUNT STORE
-// ============================================================
-
-object DemoAccountStore {
-    private val _balance = MutableStateFlow(10000.0)
-    val balance: StateFlow<Double> = _balance.asStateFlow()
-
-    fun reset() {
-        _balance.value = 10000.0
-    }
-
-    fun updateBalance(newBalance: Double) {
-        _balance.value = newBalance
-    }
-}
