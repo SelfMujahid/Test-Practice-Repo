@@ -334,7 +334,7 @@ class TradeViewModel : ViewModel() {
 
     fun setOrderType(type: TradeOrderType) { _orderType.value = type }
     fun setSide(side: PositionSide) { _side.value = side }
-    fun setLeverage(lev: Int) { _leverage.value = lev.coerceIn(1, 50) }
+    fun setLeverage(lev: Int) { _leverage.value = lev.coerceIn(1, 200) }   // ab 200 tak
     fun setMarginType(type: MarginType) { _marginType.value = type }
     fun setLimitPrice(price: String) {
         if (price.isEmpty() || price.matches(Regex("^\\d*(\\.\\d*)?$"))) _limitPrice.value = price
