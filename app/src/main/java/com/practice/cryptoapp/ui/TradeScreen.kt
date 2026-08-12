@@ -176,7 +176,7 @@ fun TradeScreen(
         }
     }
 
-    // --- Pair selector dialog ---
+    // Pair selector dialog
     if (showPairMenu) {
         val isSearchActive = pairSearch.isNotBlank()
         val displayCoins = remember(defaultList, allStaticCoins, pairSearch, isSearchActive) {
@@ -262,7 +262,7 @@ fun TradeScreen(
         )
     }
 
-    // --- Leverage dialog (updated 200 tak) ---
+    // Leverage dialog (200 tak)
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
@@ -289,10 +289,81 @@ fun TradeScreen(
     }
 }
 
-// ... (baaki functions: ModeBar, MarketHeader, OrderPanel with TP/SL, OrderBookPanel, etc.) ...
+// ============================================================
+// MODE BAR
+// ============================================================
+@Composable
+private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ModeButton("Spot", mode == TradeMode.SPOT) { onSelect(TradeMode.SPOT) }
+        ModeButton("Future", mode == TradeMode.FUTURES) { onSelect(TradeMode.FUTURES) }
+        ModeButton("Bot", mode == TradeMode.BOT) { onSelect(TradeMode.BOT) }
+    }
+}
+
+@Composable
+private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        shape = RoundedCorner,
+        contentPadding = PaddingValues(vertical = 4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
+            contentColor = if (selected) Color.White else Color.DarkGray
+        )
+    ) { Text(text = title, fontSize = 9.sp) }
+}
 
 // ============================================================
-// ORDER PANEL (with TP/SL)
+// MARKET HEADER
+// ============================================================
+@Composable
+private fun MarketHeader(
+    symbol: String,
+    name: String,
+    logo: String,
+    price: Double,
+    change24h: Double,
+    onPairClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (logo.isNotBlank()) {
+                AsyncImage(model = logo, contentDescription = name, modifier = Modifier.size(24.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+            } else {
+                Box(Modifier.size(24.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
+                    Text(symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(symbol, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text(name, fontSize = 8.sp, color = Color.Gray)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(formatPct(change24h), fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    color = if (change24h >= 0) Green else Red)
+            }
+        }
+    }
+}
+
+// ============================================================
+// ORDER PANEL (with TP/SL, 48dp amount, cross/isolated, etc.)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -368,7 +439,7 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Order type, Leverage, Cross
+            // Order type, Leverage, Cross (single row)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(modifier = Modifier.weight(1f)) {
                     Button(
@@ -588,13 +659,8 @@ private fun OrderPanel(
     }
 }
 
-// ... (OrderBookPanel, BottomTabs, etc. unchanged – wahi rahega jo pichle message mein tha) ...
-
-// Note: Baaki sab components (ModeBar, MarketHeader, OrderBookPanel, BottomTabs, ActivePosition, etc.) exactly same rahenge as previous complete file.
-// Maine yahan sirf OrderPanel ka updated part diya hai. Baaki poora TradeScreen.kt copy karte waqt woh sab bhi hona chahiye.
-
 // ============================================================
-// ORDER BOOK PANEL (unchanged)
+// ORDER BOOK PANEL
 // ============================================================
 @Composable
 private fun OrderBookPanel(
@@ -693,7 +759,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION, PENDING, HISTORY (unchanged)
+// ACTIVE POSITION, PENDING, HISTORY
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
