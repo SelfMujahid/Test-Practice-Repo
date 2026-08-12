@@ -33,7 +33,7 @@ private val Green = Color(0xFF16A34A)
 private val Red = Color(0xFFDC2626)
 private val ScreenBackground = Color(0xFFF5F5F7)
 private val CardBackground = Color.White
-private val RoundedCorner = RoundedCornerShape(12.dp)
+private val RoundedCorner = RoundedCornerShape(50.dp)
 
 @Composable
 fun TradeScreen(
