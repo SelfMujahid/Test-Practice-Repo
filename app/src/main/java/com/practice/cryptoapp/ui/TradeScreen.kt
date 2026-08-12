@@ -313,7 +313,7 @@ private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () ->
             containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
             contentColor = if (selected) Color.White else Color.DarkGray
         )
-    ) { Text(text = title, fontSize = 11.sp) }
+    ) { Text(text = title, fontSize = 9.sp) }
 }
 
 // ============================================================
