@@ -74,7 +74,7 @@ fun TradeScreen(
     val orderType by vm.orderType.collectAsState()
     val side by vm.side.collectAsState()
     val leverage by vm.leverage.collectAsState()
-    val quantity by vm.quantity.collectAsState()
+    val marginType by vm.marginType.collectAsState()
     val limitPrice by vm.limitPrice.collectAsState()
     val balance by vm.balance.collectAsState()
     val bids by vm.bids.collectAsState()
@@ -129,17 +129,16 @@ fun TradeScreen(
                 side = side,
                 orderType = orderType,
                 leverage = leverage,
-                quantity = quantity,
                 limitPrice = limitPrice,
                 position = position,
                 onSideChange = vm::setSide,
                 onOrderTypeChange = vm::setOrderType,
                 onLeverageClick = { showLeverage = true },
-                onQuantityChange = vm::setQuantity,
-                onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
                 onLimitPriceChange = vm::setLimitPrice,
-                onOpen = { vm.openOrder(currentPrice) },
-                coinSymbol = selectedCoin.symbol
+                onOpen = { qty -> vm.openOrder(currentPrice, qty) },
+                coinSymbol = selectedCoin.symbol,
+                marginType = marginType,
+                onMarginTypeChange = vm::setMarginType
             )
             OrderBookPanel(
                 modifier = Modifier.weight(1f),
@@ -363,7 +362,7 @@ private fun MarketHeader(
 }
 
 // ============================================================
-// ORDER PANEL (with new popup buttons, unit toggle, etc.)
+// ORDER PANEL (fully local amount, cross/isolated functional)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -373,32 +372,38 @@ private fun OrderPanel(
     side: PositionSide,
     orderType: TradeOrderType,
     leverage: Int,
-    quantity: Double,
     limitPrice: String,
     position: DemoPosition?,
     onSideChange: (PositionSide) -> Unit,
     onOrderTypeChange: (TradeOrderType) -> Unit,
     onLeverageClick: () -> Unit,
-    onQuantityChange: (Double) -> Unit,
-    onPercent: (Int) -> Unit,
     onLimitPriceChange: (String) -> Unit,
-    onOpen: () -> Unit,
-    coinSymbol: String
+    onOpen: (qty: Double) -> Unit,
+    coinSymbol: String,
+    marginType: MarginType,
+    onMarginTypeChange: (MarginType) -> Unit
 ) {
     var showOrderTypeMenu by remember { mutableStateOf(false) }
     var showCrossMenu by remember { mutableStateOf(false) }
     var amountUnit by remember { mutableStateOf(true) } // true = coin, false = USDT
-    var coinAmount by remember { mutableStateOf(quantity.toString()) }
+    var coinAmount by remember { mutableStateOf("0.001") }
     var usdtAmount by remember { mutableStateOf("") }
 
-    // Sync with external quantity when price or leverage changes
-    LaunchedEffect(quantity, price, leverage) {
-        if (amountUnit) {
-            coinAmount = quantity.toString()
-            usdtAmount = if (price > 0) String.format(Locale.US, "%.2f", quantity * price) else ""
-        } else {
-            usdtAmount = quantity.toString()
-            coinAmount = if (price > 0) String.format(Locale.US, "%.6f", quantity / price) else ""
+    // Percent buttons handler – local calculation
+    fun setPercent(percent: Int) {
+        val safePercent = percent.coerceIn(0, 100)
+        val marginToUse = balance * safePercent / 100.0
+        val lev = leverage.coerceAtLeast(1)
+        if (price > 0.0) {
+            val qty = (marginToUse * lev) / price
+            val qtyStr = String.format(Locale.US, "%.6f", qty)
+            if (amountUnit) {
+                coinAmount = qtyStr
+                usdtAmount = String.format(Locale.US, "%.2f", qty * price)
+            } else {
+                usdtAmount = String.format(Locale.US, "%.2f", marginToUse * lev)
+                coinAmount = qtyStr
+            }
         }
     }
 
@@ -431,9 +436,9 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Order type, Leverage, Cross (single row) – FIXED
+            // Order type, Leverage, Cross (single row)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Order type button (Market/Limit) with dropdown
+                // Market/Limit dropdown
                 Box(modifier = Modifier.weight(1f)) {
                     Button(
                         onClick = { showOrderTypeMenu = true },
@@ -475,14 +480,19 @@ private fun OrderPanel(
                     contentPadding = PaddingValues(vertical = 5.dp)
                 ) { Text("${leverage}x", fontSize = 8.sp) }
 
-                // Cross/Isolated button with dropdown – FIXED
+                // Cross/Isolated dropdown
                 Box(modifier = Modifier.weight(1f)) {
                     OutlinedButton(
                         onClick = { showCrossMenu = true },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCorner,
                         contentPadding = PaddingValues(vertical = 5.dp)
-                    ) { Text("Cross", fontSize = 8.sp) }
+                    ) {
+                        Text(
+                            text = if (marginType == MarginType.CROSS) "Cross" else "Isolated",
+                            fontSize = 8.sp
+                        )
+                    }
 
                     DropdownMenu(
                         expanded = showCrossMenu,
@@ -490,11 +500,17 @@ private fun OrderPanel(
                     ) {
                         DropdownMenuItem(
                             text = { Text("Cross") },
-                            onClick = { showCrossMenu = false }
+                            onClick = {
+                                onMarginTypeChange(MarginType.CROSS)
+                                showCrossMenu = false
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("Isolated") },
-                            onClick = { showCrossMenu = false }
+                            onClick = {
+                                onMarginTypeChange(MarginType.ISOLATED)
+                                showCrossMenu = false
+                            }
                         )
                     }
                 }
@@ -502,7 +518,7 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Limit price input (if limit order selected)
+            // Limit price input (if limit)
             if (orderType == TradeOrderType.LIMIT) {
                 OutlinedTextField(
                     value = limitPrice,
@@ -516,15 +532,12 @@ private fun OrderPanel(
                 Spacer(Modifier.height(4.dp))
             }
 
-            // Amount input with unit toggle
+            // Amount input (fully local, no slider)
             OutlinedTextField(
                 value = displayAmount,
                 onValueChange = { input ->
                     if (input.isEmpty() || input.matches(Regex("^\\d*(\\.\\d*)?$"))) {
                         if (amountUnit) coinAmount = input else usdtAmount = input
-                        val value = input.toDoubleOrNull() ?: 0.0
-                        val qty = if (amountUnit) value else if (price > 0) value / price else 0.0
-                        onQuantityChange(qty)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(34.dp),
@@ -554,26 +567,22 @@ private fun OrderPanel(
             // Percent buttons
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(25, 50, 75, 100).forEach { p ->
-                    TextButton(onClick = { onPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    TextButton(onClick = { setPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
                         Text("$p%", fontSize = 7.sp, color = PurpleMimosa)
                     }
                 }
             }
 
-            Slider(
-                value = quantity.toFloat().coerceIn(0.000001f, 1.0f),
-                onValueChange = { onQuantityChange(it.toDouble()) },
-                valueRange = 0.000001f..1.0f,
-                colors = SliderDefaults.colors(thumbColor = PurpleMimosa, activeTrackColor = PurpleMimosa)
-            )
-
             Spacer(Modifier.height(3.dp))
 
+            // Size & Margin (calculated locally)
+            val qty = (displayAmount.toDoubleOrNull() ?: 0.0).let {
+                if (amountUnit) it else if (price > 0) it / price else 0.0
+            }
             val executionPrice = if (orderType == TradeOrderType.LIMIT) limitPrice.toDoubleOrNull() ?: price else price
-            val notional = executionPrice * quantity
+            val notional = executionPrice * qty
             val margin = if (leverage > 0) notional / leverage else notional
 
-            // Size & Margin
             SmallStat("Size", "%,.2f".format(notional) + " USDT")
             Spacer(Modifier.height(2.dp))
             SmallStat("Margin", "%,.2f".format(margin) + " USDT")
@@ -590,9 +599,11 @@ private fun OrderPanel(
 
             // Open button
             Button(
-                onClick = onOpen,
+                onClick = {
+                    if (qty > 0) onOpen(qty)
+                },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = price > 0.0 && quantity > 0.0 && position == null,
+                enabled = price > 0.0 && qty > 0.0 && position == null,
                 shape = RoundedCorner,
                 colors = ButtonDefaults.buttonColors(containerColor = if (side == PositionSide.LONG) Green else Red),
                 contentPadding = PaddingValues(vertical = 8.dp)
@@ -604,7 +615,7 @@ private fun OrderPanel(
 }
 
 // ============================================================
-// ORDER BOOK PANEL
+// ORDER BOOK PANEL (unchanged)
 // ============================================================
 @Composable
 private fun OrderBookPanel(
@@ -703,7 +714,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION, PENDING, HISTORY
+// ACTIVE POSITION, PENDING, HISTORY (unchanged)
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
