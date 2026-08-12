@@ -309,6 +309,7 @@ private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () ->
         onClick = onClick,
         modifier = Modifier.weight(1f),
         shape = RoundedCorner,
+        contentPadding = PaddingValues(vertical = 4.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
             contentColor = if (selected) Color.White else Color.DarkGray
