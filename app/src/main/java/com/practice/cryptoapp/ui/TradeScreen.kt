@@ -33,6 +33,7 @@ private val Green = Color(0xFF16A34A)
 private val Red = Color(0xFFDC2626)
 private val ScreenBackground = Color(0xFFF5F5F7)
 private val CardBackground = Color.White
+private val RoundedCorner = RoundedCornerShape(12.dp)
 
 @Composable
 fun TradeScreen(
@@ -42,7 +43,6 @@ fun TradeScreen(
     val coins by cryptoVm.coins.collectAsState()
     val symbol by vm.symbol.collectAsState()
 
-    // --- Selected coin data (live preferred, static fallback) ---
     val allStaticCoins = remember {
         cryptoVm.manager.getAllSymbolsData().map { seed ->
             val base = seed.symbol.removeSuffix("USDT")
@@ -70,7 +70,6 @@ fun TradeScreen(
     val coinName = selectedCoin.name
     val coinLogo = selectedCoin.logo
 
-    // Form state from TradeViewModel
     val mode by vm.mode.collectAsState()
     val orderType by vm.orderType.collectAsState()
     val side by vm.side.collectAsState()
@@ -92,7 +91,6 @@ fun TradeScreen(
     var selectedBottomTab by rememberSaveable { mutableStateOf(TradeBottomTab.POSITION) }
     var pairSearch by rememberSaveable { mutableStateOf("") }
 
-    // Prepare default list: live coins (full) + rest symbols (compact)
     val defaultList = remember(coins, allStaticCoins) {
         val liveSymbols = coins.map { it.symbol }.toSet()
         val livePart = coins.sortedWith(compareBy(CryptoCoin::rank).thenBy(CryptoCoin::symbol))
@@ -119,37 +117,36 @@ fun TradeScreen(
         )
 
         Row(
-    modifier = Modifier
-        .fillMaxWidth()
-        .padding(horizontal = 7.dp),
-    horizontalArrangement = Arrangement.spacedBy(7.dp)
-) {
-    OrderPanel(
-        modifier = Modifier.weight(1f),
-        balance = balance,
-        price = currentPrice,
-        side = side,
-        orderType = orderType,
-        leverage = leverage,
-        quantity = quantity,
-        limitPrice = limitPrice,
-        position = position,
-        onSideChange = vm::setSide,
-        onOrderTypeChange = vm::setOrderType,
-        onLeverageClick = { showLeverage = true },
-        onQuantityChange = vm::setQuantity,
-        onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
-        onLimitPriceChange = vm::setLimitPrice,
-        onOpen = { vm.openOrder(currentPrice) }
-    )
-    // --- OrderBookPanel ki jagah Spacer hatao ---
-    OrderBookPanel(
-        modifier = Modifier.weight(1f),
-        symbol = symbol,
-        currentPrice = currentPrice,
-        bids = bids,
-        asks = asks
-    )
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            OrderPanel(
+                modifier = Modifier.weight(1f),
+                balance = balance,
+                price = currentPrice,
+                side = side,
+                orderType = orderType,
+                leverage = leverage,
+                quantity = quantity,
+                limitPrice = limitPrice,
+                position = position,
+                onSideChange = vm::setSide,
+                onOrderTypeChange = vm::setOrderType,
+                onLeverageClick = { showLeverage = true },
+                onQuantityChange = vm::setQuantity,
+                onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
+                onLimitPriceChange = vm::setLimitPrice,
+                onOpen = { vm.openOrder(currentPrice) }
+            )
+            OrderBookPanel(
+                modifier = Modifier.weight(1f),
+                symbol = symbol,
+                currentPrice = currentPrice,
+                bids = bids,
+                asks = asks
+            )
         }
 
         BottomTradeTabs(
@@ -178,12 +175,9 @@ fun TradeScreen(
         }
     }
 
-    // ============================================================
-    // PAIR SELECTOR DIALOG (Fixed)
-    // ============================================================
+    // --- Pair selector dialog (unchanged but rounded search field already 50) ---
     if (showPairMenu) {
         val isSearchActive = pairSearch.isNotBlank()
-
         val displayCoins = remember(defaultList, allStaticCoins, pairSearch, isSearchActive) {
             if (isSearchActive) {
                 allStaticCoins.filter {
@@ -191,9 +185,7 @@ fun TradeScreen(
                     it.name.contains(pairSearch, true) ||
                     (it.symbol + "USDT").contains(pairSearch, true)
                 }
-            } else {
-                defaultList
-            }
+            } else defaultList
         }
 
         AlertDialog(
@@ -206,11 +198,10 @@ fun TradeScreen(
                         onValueChange = { pairSearch = it.uppercase(Locale.US) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        shape = RoundedCornerShape(50),
+                        shape = RoundedCornerShape(50), // already round
                         placeholder = { Text("Search...") }
                     )
                     Spacer(Modifier.height(8.dp))
-
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(displayCoins, key = { it.symbol }) { coin ->
                             val isLive = coins.any { it.symbol == coin.symbol }
@@ -236,43 +227,22 @@ fun TradeScreen(
                                     Box(
                                         modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.LightGray),
                                         contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                    ) { Text(coin.symbol.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                                 }
 
                                 Spacer(Modifier.width(8.dp))
-
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = coin.name.ifBlank { coin.symbol },
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = coin.symbol + "USDT",
-                                        fontSize = 10.sp,
-                                        color = Color.Gray
-                                    )
+                                    Text(coin.name.ifBlank { coin.symbol }, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                    Text(coin.symbol + "USDT", fontSize = 10.sp, color = Color.Gray)
                                     if ((isLive || isSearchActive) && coin.rank != Int.MAX_VALUE) {
                                         Text("Rank #${coin.rank}", fontSize = 9.sp, color = Color.Gray)
                                     }
                                 }
-
                                 if (isLive || isSearchActive) {
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            text = formatPrice(coin.price),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
-                                        )
-                                        Text(
-                                            text = formatPct(coin.change24h),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (coin.change24h >= 0) Green else Red
-                                        )
+                                        Text(formatPrice(coin.price), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(formatPct(coin.change24h), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                            color = if (coin.change24h >= 0) Green else Red)
                                     }
                                 }
                             }
@@ -286,14 +256,12 @@ fun TradeScreen(
                     if (pairSearch.isNotBlank()) vm.setSymbol(pairSearch)
                     pairSearch = ""
                     showPairMenu = false
-                }) {
-                    Text("Apply", color = PurpleMimosa)
-                }
+                }) { Text("Apply", color = PurpleMimosa) }
             }
         )
     }
 
-    // --- Leverage dialog ---
+    // --- Leverage dialog (unchanged) ---
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
@@ -302,20 +270,15 @@ fun TradeScreen(
                 Column {
                     listOf(1, 2, 3, 5, 10, 20, 25, 50).forEach { value ->
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.setLeverage(value)
-                                    showLeverage = false
-                                }
-                                .padding(12.dp),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                vm.setLeverage(value)
+                                showLeverage = false
+                            }.padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("${value}x")
-                            if (value == leverage) {
-                                Icon(Icons.Default.Check, null, tint = PurpleMimosa)
-                            }
+                            if (value == leverage) Icon(Icons.Default.Check, null, tint = PurpleMimosa)
                         }
                     }
                 }
@@ -326,7 +289,7 @@ fun TradeScreen(
 }
 
 // ============================================================
-// MODE BAR
+// MODE BAR (rounded buttons)
 // ============================================================
 @Composable
 private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
@@ -345,18 +308,16 @@ private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () ->
     Button(
         onClick = onClick,
         modifier = Modifier.weight(1f),
-        shape = RoundedCornerShape(7.dp),
+        shape = RoundedCorner,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
             contentColor = if (selected) Color.White else Color.DarkGray
         )
-    ) {
-        Text(text = title, fontSize = 11.sp)
-    }
+    ) { Text(text = title, fontSize = 11.sp) }
 }
 
 // ============================================================
-// MARKET HEADER (simplified)
+// MARKET HEADER (unchanged)
 // ============================================================
 @Composable
 private fun MarketHeader(
@@ -372,25 +333,15 @@ private fun MarketHeader(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(9.dp), verticalAlignment = Alignment.CenterVertically) {
             if (logo.isNotBlank()) {
-                AsyncImage(
-                    model = logo,
-                    contentDescription = name,
-                    modifier = Modifier.size(28.dp).clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
+                AsyncImage(model = logo, contentDescription = name, modifier = Modifier.size(28.dp).clip(CircleShape), contentScale = ContentScale.Crop)
             } else {
                 Box(Modifier.size(28.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
                     Text(symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
                 }
             }
-
             Spacer(Modifier.width(8.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -400,19 +351,17 @@ private fun MarketHeader(
                 }
                 Text(name, fontSize = 9.sp, color = Color.Gray)
             }
-
             Column(horizontalAlignment = Alignment.End) {
                 Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(formatPct(change24h), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    color = if (change24h >= 0) Green else Red
-                )
+                    color = if (change24h >= 0) Green else Red)
             }
         }
     }
 }
 
 // ============================================================
-// ORDER PANEL (unchanged)
+// ORDER PANEL (new layout: Long/Short, Market/Leverage/Limit)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -442,6 +391,7 @@ private fun OrderPanel(
             Text("Place Order", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
 
+            // LONG / SHORT
             Row(modifier = Modifier.fillMaxWidth()) {
                 SideButton("Long", side == PositionSide.LONG, Green) { onSideChange(PositionSide.LONG) }
                 Spacer(Modifier.width(5.dp))
@@ -450,35 +400,62 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(7.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                SmallOrderType("Market", orderType == TradeOrderType.MARKET) { onOrderTypeChange(TradeOrderType.MARKET) }
-                SmallOrderType("Limit", orderType == TradeOrderType.LIMIT) { onOrderTypeChange(TradeOrderType.LIMIT) }
+            // MARKET / LEVERAGE / LIMIT (one row)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                // Market button
+                Button(
+                    onClick = { onOrderTypeChange(TradeOrderType.MARKET) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCorner,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (orderType == TradeOrderType.MARKET) PurpleMimosa else Color(0xFFE9E9ED),
+                        contentColor = if (orderType == TradeOrderType.MARKET) Color.White else Color.DarkGray
+                    ),
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) { Text("Market", fontSize = 10.sp) }
+
+                // Leverage button
+                OutlinedButton(
+                    onClick = onLeverageClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCorner,
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) { Text("${leverage}x", fontSize = 10.sp) }
+
+                // Limit button
+                Button(
+                    onClick = { onOrderTypeChange(TradeOrderType.LIMIT) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCorner,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (orderType == TradeOrderType.LIMIT) PurpleMimosa else Color(0xFFE9E9ED),
+                        contentColor = if (orderType == TradeOrderType.LIMIT) Color.White else Color.DarkGray
+                    ),
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) { Text("Limit", fontSize = 10.sp) }
             }
 
             Spacer(Modifier.height(7.dp))
 
-            OutlinedButton(onClick = onLeverageClick, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(vertical = 6.dp)) {
-                Text("${leverage}x", fontSize = 10.sp)
-            }
-
-            Spacer(Modifier.height(7.dp))
-
+            // Available balance
             SmallStat("Available", "%,.2f".format(balance) + " USDT")
-
             Spacer(Modifier.height(6.dp))
 
+            // Limit price (if limit order selected)
             if (orderType == TradeOrderType.LIMIT) {
                 OutlinedTextField(
                     value = limitPrice,
                     onValueChange = onLimitPriceChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    shape = RoundedCorner,
                     label = { Text("Price", fontSize = 10.sp) },
                     textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
                 )
                 Spacer(Modifier.height(6.dp))
             }
 
+            // Amount input
             var amountText by rememberSaveable { mutableStateOf(quantity.toString()) }
             LaunchedEffect(quantity) {
                 val current = amountText.toDoubleOrNull()
@@ -495,12 +472,14 @@ private fun OrderPanel(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                shape = RoundedCorner,
                 label = { Text("Amount", fontSize = 10.sp) },
                 trailingIcon = { Text("BTC", fontSize = 9.sp) },
                 textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
             )
             Spacer(Modifier.height(5.dp))
 
+            // Percentages
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(25, 50, 75, 100).forEach { p ->
                     TextButton(onClick = { onPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
@@ -531,12 +510,70 @@ private fun OrderPanel(
                 onClick = onOpen,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = price > 0.0 && quantity > 0.0 && position == null,
+                shape = RoundedCorner,
                 colors = ButtonDefaults.buttonColors(containerColor = if (side == PositionSide.LONG) Green else Red),
                 contentPadding = PaddingValues(vertical = 10.dp)
             ) {
                 Text(if (side == PositionSide.LONG) "OPEN LONG" else "OPEN SHORT", fontSize = 11.sp)
             }
         }
+    }
+}
+
+// ============================================================
+// ORDER BOOK PANEL (unchanged, live bids/asks)
+// ============================================================
+@Composable
+private fun OrderBookPanel(
+    modifier: Modifier,
+    symbol: String,
+    currentPrice: Double,
+    bids: List<OrderBookLevel>,
+    asks: List<OrderBookLevel>
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Order Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(symbol, fontSize = 9.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text("USDT", modifier = Modifier.weight(1f), fontSize = 8.sp, color = Color.Gray)
+                Text("Price", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontSize = 8.sp, color = Color.Gray)
+                Text("Amount", modifier = Modifier.weight(1f), textAlign = TextAlign.End, fontSize = 8.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(3.dp))
+            asks.take(6).asReversed().forEach { level -> OrderBookLine(level, Red) }
+            Box(
+                modifier = Modifier.fillMaxWidth().background(Color(0xFFF3EDF7), RoundedCornerShape(5.dp)).padding(vertical = 5.dp)
+            ) {
+                Text(
+                    text = if (currentPrice > 0) formatPrice(currentPrice) else "—",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PurpleMimosa
+                )
+            }
+            Spacer(Modifier.height(3.dp))
+            bids.take(6).forEach { level -> OrderBookLine(level, Green) }
+        }
+    }
+}
+
+@Composable
+private fun OrderBookLine(level: OrderBookLevel, color: Color) {
+    val usdtValue = level.price * level.quantity
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(String.format(Locale.US, "%.2f", usdtValue), modifier = Modifier.weight(1f), fontSize = 8.sp, color = Color.Gray)
+        Text(formatPrice(level.price), modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontSize = 8.sp, color = color)
+        Text(String.format(Locale.US, "%.4f", level.quantity), modifier = Modifier.weight(1f), textAlign = TextAlign.End, fontSize = 8.sp, color = Color.Gray)
     }
 }
 
@@ -560,12 +597,7 @@ private fun BottomTradeTabs(selected: TradeBottomTab, onSelected: (TradeBottomTa
 @Composable
 private fun RowScope.BottomTabButton(title: String, selected: Boolean, onClick: () -> Unit) {
     TextButton(onClick = onClick, modifier = Modifier.weight(1f)) {
-        Text(
-            title,
-            fontSize = 9.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) PurpleMimosa else Color.Gray
-        )
+        Text(title, fontSize = 9.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) PurpleMimosa else Color.Gray)
     }
 }
 
@@ -588,7 +620,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION, PENDING, HISTORY (unchanged)
+// ACTIVE POSITION, PENDING, HISTORY (unchanged but buttons rounded where applicable)
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
@@ -602,11 +634,7 @@ private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double,
         } else {
             Column(modifier = Modifier.padding(10.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        if (position.side == PositionSide.LONG) "LONG" else "SHORT",
-                        fontWeight = FontWeight.Bold,
-                        color = if (position.side == PositionSide.LONG) Green else Red
-                    )
+                    Text(if (position.side == PositionSide.LONG) "LONG" else "SHORT", fontWeight = FontWeight.Bold, color = if (position.side == PositionSide.LONG) Green else Red)
                     Text("${position.symbol} ${position.leverage}x", fontSize = 10.sp)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -617,7 +645,7 @@ private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double,
                     BottomValue("PnL", TradeViewModel.formatMoney(pnl), if (pnl >= 0) Green else Red)
                 }
                 Spacer(Modifier.height(7.dp))
-                Button(onClick = onClose, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                Button(onClick = onClose, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Red), shape = RoundedCorner) {
                     Text("CLOSE POSITION", fontSize = 10.sp)
                 }
             }
@@ -689,18 +717,18 @@ private fun HistoryRow(item: TradeHistory) {
 }
 
 // ============================================================
-// SMALL COMPONENTS (unchanged)
+// SMALL COMPONENTS (rounded SideButton)
 // ============================================================
 @Composable
 private fun RowScope.SideButton(text: String, selected: Boolean, color: Color, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         modifier = Modifier.weight(1f),
+        shape = RoundedCorner,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) color else Color(0xFFE7E7EA),
             contentColor = if (selected) Color.White else Color.DarkGray
         ),
-        shape = RoundedCornerShape(7.dp),
         contentPadding = PaddingValues(vertical = 7.dp)
     ) { Text(text, fontSize = 10.sp) }
 }
@@ -736,86 +764,3 @@ private fun formatPrice(value: Double): String {
     return if (value >= 1.0) "%,.2f".format(value) else "%.8f".format(value).trimEnd('0').trimEnd('.')
 }
 private fun formatPct(value: Double): String = "%+.2f%%".format(value)
-
-@Composable
-private fun OrderBookPanel(
-    modifier: Modifier,
-    symbol: String,
-    currentPrice: Double,
-    bids: List<OrderBookLevel>,
-    asks: List<OrderBookLevel>
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Order Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text(symbol, fontSize = 9.sp, color = Color.Gray)
-            }
-            Spacer(Modifier.height(5.dp))
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text("USDT", modifier = Modifier.weight(1f), fontSize = 8.sp, color = Color.Gray)
-                Text("Price", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontSize = 8.sp, color = Color.Gray)
-                Text("Amount", modifier = Modifier.weight(1f), textAlign = TextAlign.End, fontSize = 8.sp, color = Color.Gray)
-            }
-            Spacer(Modifier.height(3.dp))
-
-            asks.take(6).asReversed().forEach { level ->
-                OrderBookLine(level = level, color = Red)
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFF3EDF7), RoundedCornerShape(5.dp))
-                    .padding(vertical = 5.dp)
-            ) {
-                Text(
-                    text = if (currentPrice > 0) formatPrice(currentPrice) else "—",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PurpleMimosa
-                )
-            }
-
-            Spacer(Modifier.height(3.dp))
-
-            bids.take(6).forEach { level ->
-                OrderBookLine(level = level, color = Green)
-            }
-        }
-    }
-}
-
-@Composable
-private fun OrderBookLine(level: OrderBookLevel, color: Color) {
-    val usdtValue = level.price * level.quantity
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(
-            text = String.format(Locale.US, "%.2f", usdtValue),
-            modifier = Modifier.weight(1f),
-            fontSize = 8.sp,
-            color = Color.Gray
-        )
-        Text(
-            text = formatPrice(level.price),
-            modifier = Modifier.weight(1f),
-            textAlign = TextAlign.Center,
-            fontSize = 8.sp,
-            color = color
-        )
-        Text(
-            text = String.format(Locale.US, "%.4f", level.quantity),
-            modifier = Modifier.weight(1f),
-            textAlign = TextAlign.End,
-            fontSize = 8.sp,
-            color = Color.Gray
-        )
-    }
-}
