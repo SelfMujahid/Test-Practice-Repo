@@ -64,6 +64,11 @@ enum class TradeMode {
     BOT
 }
 
+enum class MarginType {
+    CROSS,
+    ISOLATED
+}
+
 // ============================================================
 // DEMO ACCOUNT STORE
 // ============================================================
@@ -210,8 +215,9 @@ class TradeViewModel : ViewModel() {
     private val _leverage = MutableStateFlow(10)
     val leverage: StateFlow<Int> = _leverage.asStateFlow()
 
-    private val _quantity = MutableStateFlow(0.001)
-    val quantity: StateFlow<Double> = _quantity.asStateFlow()
+    // Margin type (Cross/Isolated)
+    private val _marginType = MutableStateFlow(MarginType.CROSS)
+    val marginType: StateFlow<MarginType> = _marginType.asStateFlow()
 
     private val _limitPrice = MutableStateFlow("")
     val limitPrice: StateFlow<String> = _limitPrice.asStateFlow()
@@ -329,31 +335,20 @@ class TradeViewModel : ViewModel() {
     fun setOrderType(type: TradeOrderType) { _orderType.value = type }
     fun setSide(side: PositionSide) { _side.value = side }
     fun setLeverage(lev: Int) { _leverage.value = lev.coerceIn(1, 50) }
-    fun setQuantity(qty: Double) { _quantity.value = max(0.000001, qty) }
+    fun setMarginType(type: MarginType) { _marginType.value = type }
     fun setLimitPrice(price: String) {
         if (price.isEmpty() || price.matches(Regex("^\\d*(\\.\\d*)?$"))) _limitPrice.value = price
     }
 
-    fun setQuantityPercent(percent: Int, currentPrice: Double) {
-        val safePercent = percent.coerceIn(0, 100)
-        val bal = DemoAccountStore.balance.value
-        val lev = _leverage.value.coerceAtLeast(1)
-        if (currentPrice <= 0.0) return
-        val marginToUse = bal * safePercent / 100.0
-        val notional = marginToUse * lev
-        val calculatedQuantity = notional / currentPrice
-        _quantity.value = calculatedQuantity.coerceAtLeast(0.000001)
-    }
-
-    fun openOrder(executionPrice: Double) {
+    fun openOrder(executionPrice: Double, qty: Double) {
         if (_mode.value != TradeMode.FUTURES) { _message.value = "Select Futures first"; return }
-        if (_quantity.value <= 0.0) { _message.value = "Enter quantity"; return }
+        if (qty <= 0.0) { _message.value = "Enter quantity"; return }
         when (_orderType.value) {
             TradeOrderType.MARKET -> {
                 if (executionPrice <= 0.0) { _message.value = "Waiting for live price"; return }
                 val success = DemoAccountStore.openMarketPosition(
                     symbol = _symbol.value, side = _side.value,
-                    entryPrice = executionPrice, quantity = _quantity.value,
+                    entryPrice = executionPrice, quantity = qty,
                     leverage = _leverage.value
                 )
                 _message.value = if (success) "Demo position opened" else "Cannot open position"
@@ -363,7 +358,7 @@ class TradeViewModel : ViewModel() {
                 if (limit <= 0.0) { _message.value = "Enter limit price"; return }
                 val success = DemoAccountStore.addPendingOrder(
                     symbol = _symbol.value, side = _side.value,
-                    price = limit, quantity = _quantity.value,
+                    price = limit, quantity = qty,
                     leverage = _leverage.value
                 )
                 _message.value = if (success) "Pending limit order added" else "Cannot add order"
