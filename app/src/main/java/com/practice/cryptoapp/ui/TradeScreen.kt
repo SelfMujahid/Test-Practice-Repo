@@ -138,7 +138,8 @@ fun TradeScreen(
                 onQuantityChange = vm::setQuantity,
                 onPercent = { percent -> vm.setQuantityPercent(percent, currentPrice) },
                 onLimitPriceChange = vm::setLimitPrice,
-                onOpen = { vm.openOrder(currentPrice) }
+                onOpen = { vm.openOrder(currentPrice) },
+                coinSymbol = selectedCoin.symbol
             )
             OrderBookPanel(
                 modifier = Modifier.weight(1f),
@@ -362,7 +363,7 @@ private fun MarketHeader(
 }
 
 // ============================================================
-// ORDER PANEL
+// ORDER PANEL (with new popup buttons, unit toggle, etc.)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -381,8 +382,39 @@ private fun OrderPanel(
     onQuantityChange: (Double) -> Unit,
     onPercent: (Int) -> Unit,
     onLimitPriceChange: (String) -> Unit,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    coinSymbol: String
 ) {
+    var showOrderTypeMenu by remember { mutableStateOf(false) }
+    var showCrossMenu by remember { mutableStateOf(false) }
+    var amountUnit by remember { mutableStateOf(true) } // true = coin, false = USDT
+    var coinAmount by remember { mutableStateOf(quantity.toString()) }
+    var usdtAmount by remember { mutableStateOf("") }
+
+    // Sync with external quantity when price or leverage changes
+    LaunchedEffect(quantity, price, leverage) {
+        if (amountUnit) {
+            coinAmount = quantity.toString()
+            usdtAmount = if (price > 0) String.format(Locale.US, "%.2f", quantity * price) else ""
+        } else {
+            usdtAmount = quantity.toString()
+            coinAmount = if (price > 0) String.format(Locale.US, "%.6f", quantity / price) else ""
+        }
+    }
+
+    val displayAmount = if (amountUnit) coinAmount else usdtAmount
+    val conversionText = remember(displayAmount, amountUnit, price) {
+        if (amountUnit) {
+            // show USDT equivalent
+            val usdt = if (price > 0) (displayAmount.toDoubleOrNull() ?: 0.0) * price else 0.0
+            "≈ ${"%,.2f".format(usdt)} USDT"
+        } else {
+            // show coin equivalent
+            val coin = if (price > 0) (displayAmount.toDoubleOrNull() ?: 0.0) / price else 0.0
+            "≈ ${"%.6f".format(coin)} $coinSymbol"
+        }
+    }
+
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
@@ -401,19 +433,43 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // MARKET / LEVERAGE / LIMIT
+            // Order type, Leverage, Cross (single row)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Button(
-                    onClick = { onOrderTypeChange(TradeOrderType.MARKET) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCorner,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (orderType == TradeOrderType.MARKET) PurpleMimosa else Color(0xFFE9E9ED),
-                        contentColor = if (orderType == TradeOrderType.MARKET) Color.White else Color.DarkGray
-                    ),
-                    contentPadding = PaddingValues(vertical = 5.dp)
-                ) { Text("Market", fontSize = 8.sp) }
+                // Order type button (Market/Limit)
+                Box {
+                    Button(
+                        onClick = { showOrderTypeMenu = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCorner,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PurpleMimosa,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(vertical = 5.dp)
+                    ) { Text(if (orderType == TradeOrderType.MARKET) "Market" else "Limit", fontSize = 8.sp) }
 
+                    DropdownMenu(
+                        expanded = showOrderTypeMenu,
+                        onDismissRequest = { showOrderTypeMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Market") },
+                            onClick = {
+                                onOrderTypeChange(TradeOrderType.MARKET)
+                                showOrderTypeMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Limit") },
+                            onClick = {
+                                onOrderTypeChange(TradeOrderType.LIMIT)
+                                showOrderTypeMenu = false
+                            }
+                        )
+                    }
+                }
+
+                // Leverage button
                 OutlinedButton(
                     onClick = onLeverageClick,
                     modifier = Modifier.weight(1f),
@@ -421,23 +477,39 @@ private fun OrderPanel(
                     contentPadding = PaddingValues(vertical = 5.dp)
                 ) { Text("${leverage}x", fontSize = 8.sp) }
 
-                Button(
-                    onClick = { onOrderTypeChange(TradeOrderType.LIMIT) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCorner,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (orderType == TradeOrderType.LIMIT) PurpleMimosa else Color(0xFFE9E9ED),
-                        contentColor = if (orderType == TradeOrderType.LIMIT) Color.White else Color.DarkGray
-                    ),
-                    contentPadding = PaddingValues(vertical = 5.dp)
-                ) { Text("Limit", fontSize = 8.sp) }
+                // Cross/Isolated button
+                Box {
+                    OutlinedButton(
+                        onClick = { showCrossMenu = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCorner,
+                        contentPadding = PaddingValues(vertical = 5.dp)
+                    ) { Text("Cross", fontSize = 8.sp) } // default Cross
+
+                    DropdownMenu(
+                        expanded = showCrossMenu,
+                        onDismissRequest = { showCrossMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Cross") },
+                            onClick = {
+                                // handle cross selection (no VM state yet)
+                                showCrossMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Isolated") },
+                            onClick = {
+                                showCrossMenu = false
+                            }
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(5.dp))
 
-            SmallStat("Available", "%,.2f".format(balance) + " USDT")
-            Spacer(Modifier.height(4.dp))
-
+            // Limit price input (if limit order selected)
             if (orderType == TradeOrderType.LIMIT) {
                 OutlinedTextField(
                     value = limitPrice,
@@ -451,29 +523,42 @@ private fun OrderPanel(
                 Spacer(Modifier.height(4.dp))
             }
 
-            var amountText by rememberSaveable { mutableStateOf(quantity.toString()) }
-            LaunchedEffect(quantity) {
-                val current = amountText.toDoubleOrNull()
-                if (current == null || kotlin.math.abs(current - quantity) > 0.000000001)
-                    amountText = quantity.toString()
-            }
+            // Amount input with unit toggle
             OutlinedTextField(
-                value = amountText,
+                value = displayAmount,
                 onValueChange = { input ->
                     if (input.isEmpty() || input.matches(Regex("^\\d*(\\.\\d*)?$"))) {
-                        amountText = input
-                        input.toDoubleOrNull()?.let { if (it > 0.0) onQuantityChange(it) }
+                        if (amountUnit) coinAmount = input else usdtAmount = input
+                        val value = input.toDoubleOrNull() ?: 0.0
+                        val qty = if (amountUnit) value else if (price > 0) value / price else 0.0
+                        onQuantityChange(qty)
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(34.dp), // 40% smaller
                 singleLine = true,
                 shape = RoundedCorner,
                 label = { Text("Amount", fontSize = 9.sp) },
-                trailingIcon = { Text("BTC", fontSize = 8.sp) },
+                trailingIcon = {
+                    Text(
+                        text = if (amountUnit) coinSymbol else "USDT",
+                        fontSize = 10.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.clickable { amountUnit = !amountUnit }
+                    )
+                },
                 textStyle = LocalTextStyle.current.copy(fontSize = 10.sp)
+            )
+
+            // Conversion line
+            Text(
+                text = conversionText,
+                fontSize = 8.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(start = 4.dp)
             )
             Spacer(Modifier.height(4.dp))
 
+            // Percent buttons
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(25, 50, 75, 100).forEach { p ->
                     TextButton(onClick = { onPercent(p) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
@@ -495,11 +580,22 @@ private fun OrderPanel(
             val notional = executionPrice * quantity
             val margin = if (leverage > 0) notional / leverage else notional
 
+            // Size & Margin
             SmallStat("Size", "%,.2f".format(notional) + " USDT")
             Spacer(Modifier.height(2.dp))
             SmallStat("Margin", "%,.2f".format(margin) + " USDT")
+
             Spacer(Modifier.height(6.dp))
 
+            // Available balance
+            Text(
+                text = "Available: ${"%,.2f".format(balance)} USDT",
+                fontSize = 9.sp,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // Open button
             Button(
                 onClick = onOpen,
                 modifier = Modifier.fillMaxWidth(),
@@ -515,7 +611,7 @@ private fun OrderPanel(
 }
 
 // ============================================================
-// ORDER BOOK PANEL
+// ORDER BOOK PANEL (unchanged)
 // ============================================================
 @Composable
 private fun OrderBookPanel(
@@ -572,7 +668,7 @@ private fun OrderBookLine(level: OrderBookLevel, color: Color) {
 }
 
 // ============================================================
-// BOTTOM TABS & CONTENT
+// BOTTOM TABS & CONTENT (unchanged)
 // ============================================================
 private enum class TradeBottomTab { POSITION, PENDING, HISTORY }
 
@@ -614,7 +710,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION, PENDING, HISTORY
+// ACTIVE POSITION, PENDING, HISTORY (unchanged)
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
@@ -711,7 +807,7 @@ private fun HistoryRow(item: TradeHistory) {
 }
 
 // ============================================================
-// SMALL COMPONENTS
+// SMALL COMPONENTS (unchanged)
 // ============================================================
 @Composable
 private fun RowScope.SideButton(text: String, selected: Boolean, color: Color, onClick: () -> Unit) {
