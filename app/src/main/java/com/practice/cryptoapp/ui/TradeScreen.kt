@@ -405,11 +405,9 @@ private fun OrderPanel(
     val displayAmount = if (amountUnit) coinAmount else usdtAmount
     val conversionText = remember(displayAmount, amountUnit, price) {
         if (amountUnit) {
-            // show USDT equivalent
             val usdt = if (price > 0) (displayAmount.toDoubleOrNull() ?: 0.0) * price else 0.0
             "≈ ${"%,.2f".format(usdt)} USDT"
         } else {
-            // show coin equivalent
             val coin = if (price > 0) (displayAmount.toDoubleOrNull() ?: 0.0) / price else 0.0
             "≈ ${"%.6f".format(coin)} $coinSymbol"
         }
@@ -433,13 +431,13 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Order type, Leverage, Cross (single row)
+            // Order type, Leverage, Cross (single row) – FIXED
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Order type button (Market/Limit)
-                Box {
+                // Order type button (Market/Limit) with dropdown
+                Box(modifier = Modifier.weight(1f)) {
                     Button(
                         onClick = { showOrderTypeMenu = true },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCorner,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PurpleMimosa,
@@ -477,14 +475,14 @@ private fun OrderPanel(
                     contentPadding = PaddingValues(vertical = 5.dp)
                 ) { Text("${leverage}x", fontSize = 8.sp) }
 
-                // Cross/Isolated button
-                Box {
+                // Cross/Isolated button with dropdown – FIXED
+                Box(modifier = Modifier.weight(1f)) {
                     OutlinedButton(
                         onClick = { showCrossMenu = true },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCorner,
                         contentPadding = PaddingValues(vertical = 5.dp)
-                    ) { Text("Cross", fontSize = 8.sp) } // default Cross
+                    ) { Text("Cross", fontSize = 8.sp) }
 
                     DropdownMenu(
                         expanded = showCrossMenu,
@@ -492,16 +490,11 @@ private fun OrderPanel(
                     ) {
                         DropdownMenuItem(
                             text = { Text("Cross") },
-                            onClick = {
-                                // handle cross selection (no VM state yet)
-                                showCrossMenu = false
-                            }
+                            onClick = { showCrossMenu = false }
                         )
                         DropdownMenuItem(
                             text = { Text("Isolated") },
-                            onClick = {
-                                showCrossMenu = false
-                            }
+                            onClick = { showCrossMenu = false }
                         )
                     }
                 }
@@ -534,7 +527,7 @@ private fun OrderPanel(
                         onQuantityChange(qty)
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(34.dp), // 40% smaller
+                modifier = Modifier.fillMaxWidth().height(34.dp),
                 singleLine = true,
                 shape = RoundedCorner,
                 label = { Text("Amount", fontSize = 9.sp) },
@@ -611,7 +604,7 @@ private fun OrderPanel(
 }
 
 // ============================================================
-// ORDER BOOK PANEL (unchanged)
+// ORDER BOOK PANEL
 // ============================================================
 @Composable
 private fun OrderBookPanel(
@@ -668,7 +661,7 @@ private fun OrderBookLine(level: OrderBookLevel, color: Color) {
 }
 
 // ============================================================
-// BOTTOM TABS & CONTENT (unchanged)
+// BOTTOM TABS & CONTENT
 // ============================================================
 private enum class TradeBottomTab { POSITION, PENDING, HISTORY }
 
@@ -710,7 +703,7 @@ private fun BottomTradeContent(
 }
 
 // ============================================================
-// ACTIVE POSITION, PENDING, HISTORY (unchanged)
+// ACTIVE POSITION, PENDING, HISTORY
 // ============================================================
 @Composable
 private fun ActivePositionContent(position: DemoPosition?, currentPrice: Double, pnl: Double, onClose: () -> Unit) {
@@ -807,7 +800,7 @@ private fun HistoryRow(item: TradeHistory) {
 }
 
 // ============================================================
-// SMALL COMPONENTS (unchanged)
+// SMALL COMPONENTS
 // ============================================================
 @Composable
 private fun RowScope.SideButton(text: String, selected: Boolean, color: Color, onClick: () -> Unit) {
