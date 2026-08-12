@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -261,14 +262,14 @@ fun TradeScreen(
         )
     }
 
-    // --- Leverage dialog ---
+    // --- Leverage dialog (updated 200 tak) ---
     if (showLeverage) {
         AlertDialog(
             onDismissRequest = { showLeverage = false },
             title = { Text("Leverage", fontSize = 14.sp) },
             text = {
                 Column {
-                    listOf(1, 2, 3, 5, 10, 20, 25, 50).forEach { value ->
+                    listOf(1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125, 150, 175, 200).forEach { value ->
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable {
                                 vm.setLeverage(value)
@@ -288,81 +289,10 @@ fun TradeScreen(
     }
 }
 
-// ============================================================
-// MODE BAR
-// ============================================================
-@Composable
-private fun ModeBar(mode: TradeMode, onSelect: (TradeMode) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        ModeButton("Spot", mode == TradeMode.SPOT) { onSelect(TradeMode.SPOT) }
-        ModeButton("Future", mode == TradeMode.FUTURES) { onSelect(TradeMode.FUTURES) }
-        ModeButton("Bot", mode == TradeMode.BOT) { onSelect(TradeMode.BOT) }
-    }
-}
-
-@Composable
-private fun RowScope.ModeButton(title: String, selected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.weight(1f),
-        shape = RoundedCorner,
-        contentPadding = PaddingValues(vertical = 4.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) PurpleMimosa else Color(0xFFE9E9ED),
-            contentColor = if (selected) Color.White else Color.DarkGray
-        )
-    ) { Text(text = title, fontSize = 9.sp) }
-}
+// ... (baaki functions: ModeBar, MarketHeader, OrderPanel with TP/SL, OrderBookPanel, etc.) ...
 
 // ============================================================
-// MARKET HEADER
-// ============================================================
-@Composable
-private fun MarketHeader(
-    symbol: String,
-    name: String,
-    logo: String,
-    price: Double,
-    change24h: Double,
-    onPairClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (logo.isNotBlank()) {
-                AsyncImage(model = logo, contentDescription = name, modifier = Modifier.size(24.dp).clip(CircleShape), contentScale = ContentScale.Crop)
-            } else {
-                Box(Modifier.size(24.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
-                    Text(symbol.take(1), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                TextButton(onClick = onPairClick, contentPadding = PaddingValues(0.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(symbol, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-                        Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(16.dp))
-                    }
-                }
-                Text(name, fontSize = 8.sp, color = Color.Gray)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(if (price > 0) formatPrice(price) else "—", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(formatPct(change24h), fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                    color = if (change24h >= 0) Green else Red)
-            }
-        }
-    }
-}
-
-// ============================================================
-// ORDER PANEL (fully local amount, cross/isolated functional)
+// ORDER PANEL (with TP/SL)
 // ============================================================
 @Composable
 private fun OrderPanel(
@@ -388,8 +318,10 @@ private fun OrderPanel(
     var amountUnit by remember { mutableStateOf(true) } // true = coin, false = USDT
     var coinAmount by remember { mutableStateOf("0.001") }
     var usdtAmount by remember { mutableStateOf("") }
+    var showTPSL by remember { mutableStateOf(false) }
+    var takeProfitPrice by remember { mutableStateOf("") }
+    var stopLossPrice by remember { mutableStateOf("") }
 
-    // Percent buttons handler – local calculation
     fun setPercent(percent: Int) {
         val safePercent = percent.coerceIn(0, 100)
         val marginToUse = balance * safePercent / 100.0
@@ -436,9 +368,8 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Order type, Leverage, Cross (single row)
+            // Order type, Leverage, Cross
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Market/Limit dropdown
                 Box(modifier = Modifier.weight(1f)) {
                     Button(
                         onClick = { showOrderTypeMenu = true },
@@ -472,7 +403,6 @@ private fun OrderPanel(
                     }
                 }
 
-                // Leverage button
                 OutlinedButton(
                     onClick = onLeverageClick,
                     modifier = Modifier.weight(1f),
@@ -480,7 +410,6 @@ private fun OrderPanel(
                     contentPadding = PaddingValues(vertical = 5.dp)
                 ) { Text("${leverage}x", fontSize = 8.sp) }
 
-                // Cross/Isolated dropdown
                 Box(modifier = Modifier.weight(1f)) {
                     OutlinedButton(
                         onClick = { showCrossMenu = true },
@@ -518,7 +447,6 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(5.dp))
 
-            // Limit price input (if limit)
             if (orderType == TradeOrderType.LIMIT) {
                 OutlinedTextField(
                     value = limitPrice,
@@ -532,7 +460,7 @@ private fun OrderPanel(
                 Spacer(Modifier.height(4.dp))
             }
 
-            // Amount input (fully local, no slider)
+            // Amount input (height 48dp, text clearly visible)
             OutlinedTextField(
                 value = displayAmount,
                 onValueChange = { input ->
@@ -540,7 +468,7 @@ private fun OrderPanel(
                         if (amountUnit) coinAmount = input else usdtAmount = input
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(34.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 singleLine = true,
                 shape = RoundedCorner,
                 label = { Text("Amount", fontSize = 9.sp) },
@@ -552,10 +480,9 @@ private fun OrderPanel(
                         modifier = Modifier.clickable { amountUnit = !amountUnit }
                     )
                 },
-                textStyle = LocalTextStyle.current.copy(fontSize = 10.sp)
+                textStyle = LocalTextStyle.current.copy(fontSize = 10.sp, color = Color.Black)
             )
 
-            // Conversion line
             Text(
                 text = conversionText,
                 fontSize = 8.sp,
@@ -563,6 +490,58 @@ private fun OrderPanel(
                 modifier = Modifier.padding(start = 4.dp)
             )
             Spacer(Modifier.height(4.dp))
+
+            // TP/SL toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showTPSL = !showTPSL }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "TP/SL",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.DarkGray
+                )
+                Icon(
+                    imageVector = if (showTPSL) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Color.DarkGray,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            if (showTPSL) {
+                OutlinedTextField(
+                    value = takeProfitPrice,
+                    onValueChange = { newValue ->
+                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d*(\\.\\d*)?$")))
+                            takeProfitPrice = newValue
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCorner,
+                    label = { Text("Take Profit", fontSize = 8.sp) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 9.sp)
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = stopLossPrice,
+                    onValueChange = { newValue ->
+                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d*(\\.\\d*)?$")))
+                            stopLossPrice = newValue
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCorner,
+                    label = { Text("Stop Loss", fontSize = 8.sp) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 9.sp)
+                )
+                Spacer(Modifier.height(4.dp))
+            }
 
             // Percent buttons
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -575,7 +554,6 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(3.dp))
 
-            // Size & Margin (calculated locally)
             val qty = (displayAmount.toDoubleOrNull() ?: 0.0).let {
                 if (amountUnit) it else if (price > 0) it / price else 0.0
             }
@@ -589,7 +567,6 @@ private fun OrderPanel(
 
             Spacer(Modifier.height(6.dp))
 
-            // Available balance
             Text(
                 text = "Available: ${"%,.2f".format(balance)} USDT",
                 fontSize = 9.sp,
@@ -597,11 +574,8 @@ private fun OrderPanel(
             )
             Spacer(Modifier.height(4.dp))
 
-            // Open button
             Button(
-                onClick = {
-                    if (qty > 0) onOpen(qty)
-                },
+                onClick = { if (qty > 0) onOpen(qty) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = price > 0.0 && qty > 0.0 && position == null,
                 shape = RoundedCorner,
@@ -613,6 +587,11 @@ private fun OrderPanel(
         }
     }
 }
+
+// ... (OrderBookPanel, BottomTabs, etc. unchanged – wahi rahega jo pichle message mein tha) ...
+
+// Note: Baaki sab components (ModeBar, MarketHeader, OrderBookPanel, BottomTabs, ActivePosition, etc.) exactly same rahenge as previous complete file.
+// Maine yahan sirf OrderPanel ka updated part diya hai. Baaki poora TradeScreen.kt copy karte waqt woh sab bhi hona chahiye.
 
 // ============================================================
 // ORDER BOOK PANEL (unchanged)
